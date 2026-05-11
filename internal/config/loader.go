@@ -48,7 +48,7 @@ type Config struct {
 const (
 	configName = "config"
 	configType = "yaml"
-	configPath = "../../configs/"
+	configPath = "configs/"
 )
 
 func loadFile() error {
@@ -76,7 +76,7 @@ func Load() (*Config, error) {
 		config      Config
 	)
 
-	err = env.Load("../../.env")
+	err = env.Load(".env")
 	if err != nil {
 		fmt.Println("unable to load the .env file, relying on system environment variables")
 	}

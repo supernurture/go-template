@@ -8,10 +8,12 @@ OUTPUT_DIR="internal/api/server/gen"
 
 mkdir -p "$OUTPUT_DIR"
 
-for file in "$SPECIFICATIONS"/*.yaml; do
+for file in $(ls "$SPECIFICATIONS"/*.yaml | sort); do
+  [ -e "$file" ] || continue
+
   name=$(basename "$file" .yaml)
 
-  echo "→ Generating $name"
+  echo "→ generating $name"
 
   go tool oapi-codegen \
     -config "$CONFIG" \
