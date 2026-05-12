@@ -4,7 +4,7 @@ set -e
 
 CONFIG="api/server/config.yaml"
 SPECIFICATIONS="api/server/specifications"
-OUTPUT_DIR="internal/api/server/gen"
+OUTPUT_DIR="internal/api/server/codegen"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -17,6 +17,6 @@ for file in $(ls "$SPECIFICATIONS"/*.yaml | sort); do
 
   go tool oapi-codegen \
     -config "$CONFIG" \
-    -o "$OUTPUT_DIR/$name.gen.go" \
+    -o "$OUTPUT_DIR/$name.codegen.go" \
     "$file"
 done

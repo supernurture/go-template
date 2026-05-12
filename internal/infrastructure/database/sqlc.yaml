@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "postgre/audit/schema"
+    queries: "postgre/audit/queries"
+    gen:
+      go:
+        package: "querygen"
+        out: "postgre/audit/querygen"
+        sql_package: "pgx/v5"

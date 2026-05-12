@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -78,7 +79,7 @@ func Load() (*Config, error) {
 
 	err = env.Load(".env")
 	if err != nil {
-		fmt.Println("unable to load the .env file, relying on system environment variables")
+		log.Println("unable to load the .env file, relying on system environment variables")
 	}
 
 	viper.AutomaticEnv()
