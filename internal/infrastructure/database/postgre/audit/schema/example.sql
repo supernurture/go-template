@@ -1,3 +1,3 @@
-CREATE TABLE cashflows (
+CREATE TABLE example (
   data text      NOT NULL,
 );

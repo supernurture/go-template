@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Config struct {
+type PostgreConfig struct {
 	Host     string
 	Port     int
 	Username string
@@ -16,8 +16,8 @@ type Config struct {
 	Name     string
 }
 
-func Init(config Config) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(context.Background(),
+func PostgreInit(c context.Context, config PostgreConfig) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(c,
 		fmt.Sprintf("postgres://%s:%s@%s:%d/%s", config.Username, config.Password, config.Host, config.Port, config.Name))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create connection pool: %w", err)

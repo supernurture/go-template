@@ -1,7 +1,4 @@
 codegen:
 	bash scripts/codegen.sh
-
-SQLC_DIR=internal/infrastructure/database
-.PHONY: querygen
-querygen:
-	go tool sqlc generate -f $(SQLC_DIR)/sqlc.yaml
+queriesgen:
+	go tool sqlc generate -f internal/infrastructure/database/sqlc.yaml
