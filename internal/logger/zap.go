@@ -50,7 +50,7 @@ func buildSyncer(output string) (core.WriteSyncer, error) {
 
 func buildEncoder(format string) (core.Encoder, error) {
 	var encoder = zap.NewProductionEncoderConfig()
-	encoder.EncodeTime = core.EpochTimeEncoder
+	encoder.EncodeTime = core.ISO8601TimeEncoder
 	switch format {
 	case "json":
 		encoder.EncodeLevel = core.LowercaseLevelEncoder

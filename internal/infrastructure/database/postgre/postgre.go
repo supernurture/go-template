@@ -16,8 +16,8 @@ type PostgreConfig struct {
 	Name     string
 }
 
-func PostgreInit(c context.Context, config PostgreConfig) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(c,
+func PostgreInit(ctx context.Context, config PostgreConfig) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(ctx,
 		fmt.Sprintf("postgres://%s:%s@%s:%d/%s", config.Username, config.Password, config.Host, config.Port, config.Name))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create connection pool: %w", err)
