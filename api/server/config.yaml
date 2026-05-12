@@ -1,4 +1,4 @@
-package: codegen
+package: oapicodegen
 generate:
   gin-server: true
   models: true

@@ -23,6 +23,6 @@ func PostgreInit(c context.Context, config PostgreConfig) (*pgxpool.Pool, error)
 		return nil, fmt.Errorf("unable to create connection pool: %w", err)
 	}
 
-	log.Printf("successfully create connection pool for database %s \n", config.Name)
+	log.Printf("successfully create connection pool for database: %s \n", config.Name)
 	return pool, nil
 }

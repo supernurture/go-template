@@ -1,3 +1,3 @@
 CREATE TABLE example (
-  data text      NOT NULL,
+  example text      NOT NULL
 );

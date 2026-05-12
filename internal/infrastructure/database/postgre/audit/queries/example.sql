@@ -1,2 +1,2 @@
--- name: GetExample :many
-SELECT data FROM example;
+-- name: GetExample :one
+SELECT example FROM example;
