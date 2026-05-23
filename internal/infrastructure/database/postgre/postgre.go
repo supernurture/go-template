@@ -20,9 +20,9 @@ func PostgreInit(ctx context.Context, config PostgreConfig) (*pgxpool.Pool, erro
 	pool, err := pgxpool.New(ctx,
 		fmt.Sprintf("postgres://%s:%s@%s:%d/%s", config.Username, config.Password, config.Host, config.Port, config.Name))
 	if err != nil {
-		return nil, fmt.Errorf("unable to create connection pool: %w", err)
+		return nil, fmt.Errorf("unable to create postgre connection pool for database %s: %w", config.Name, err)
 	}
 
-	log.Printf("successfully create connection pool for database: %s \n", config.Name)
+	log.Printf("successfully created connection pool for database: %s \n", config.Name)
 	return pool, nil
 }

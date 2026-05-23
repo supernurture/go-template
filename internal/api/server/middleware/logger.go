@@ -3,11 +3,11 @@ package middleware
 import (
 	"time"
 
+	"github.com/Yonathandj/go-template/pkg/logger"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
-func Logger(log *zap.Logger) gin.HandlerFunc {
+func Logger(log logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
@@ -18,13 +18,13 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 		requestID, _ := c.Get(RequestIDKey)
 
 		log.Info("incoming request",
-			zap.String("request_id", requestID.(string)),
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
-			zap.Int("status", c.Writer.Status()),
-			zap.Duration("latency", latency),
-			zap.String("ip", c.ClientIP()),
-			zap.String("user_agent", c.Request.UserAgent()),
+			"request_id", requestID.(string),
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", c.Writer.Status(),
+			"latency", latency,
+			"ip", c.ClientIP(),
+			"user_agent", c.Request.UserAgent(),
 		)
 	}
 }

@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/Yonathandj/go-template/internal/api/server/middleware"
+	"github.com/Yonathandj/go-template/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
 )
 
-func Setup(log *zap.Logger) *gin.Engine {
+func Setup(log logger.Logger) *gin.Engine {
 	gin.SetMode(os.Getenv("GIN_MODE"))
 	r := gin.New()
 	r.SetTrustedProxies(nil)

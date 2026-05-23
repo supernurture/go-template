@@ -7,14 +7,14 @@ paths:
     get:
       responses:
         '200':
-          description: successfully get health
+          description: successfully retrieved health
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Health'
+                $ref: '#/components/schemas/HealthResponse'
 components:
   schemas:
-    Health:
+    HealthResponse:
       type: object
       required:
         - condition

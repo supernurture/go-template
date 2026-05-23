@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"go.uber.org/zap"
-	core "go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zapcore"
 )
 
 type zapLogger struct {
@@ -18,46 +18,46 @@ func (l *zapLogger) Warn(msg string, args ...any)  { l.logger.Warnw(msg, args...
 func (l *zapLogger) Error(msg string, args ...any) { l.logger.Errorw(msg, args...) }
 func (l *zapLogger) With(args ...any) Logger       { return &zapLogger{logger: l.logger.With(args...)} }
 
-func buildLevel(level string) (core.Level, error) {
+func buildLevel(level string) (zapcore.Level, error) {
 	switch level {
 	case "debug":
-		return core.DebugLevel, nil
+		return zapcore.DebugLevel, nil
 	case "info":
-		return core.InfoLevel, nil
+		return zapcore.InfoLevel, nil
 	case "warn":
-		return core.WarnLevel, nil
+		return zapcore.WarnLevel, nil
 	case "error":
-		return core.ErrorLevel, nil
+		return zapcore.ErrorLevel, nil
 	default:
 		return 0, fmt.Errorf("unknown level %s: must be debug, info, warn, or error", level)
 	}
 }
 
-func buildSyncer(output string) (core.WriteSyncer, error) {
+func buildSyncer(output string) (zapcore.WriteSyncer, error) {
 	switch output {
 	case "stdout":
-		return core.AddSync(os.Stdout), nil
+		return zapcore.AddSync(os.Stdout), nil
 	case "stderr", "":
-		return core.AddSync(os.Stderr), nil
+		return zapcore.AddSync(os.Stderr), nil
 	default:
 		file, err := os.OpenFile(output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			return nil, fmt.Errorf("open log file %q: %w", output, err)
 		}
-		return core.AddSync(file), nil
+		return zapcore.AddSync(file), nil
 	}
 }
 
-func buildEncoder(format string) (core.Encoder, error) {
+func buildEncoder(format string) (zapcore.Encoder, error) {
 	var encoder = zap.NewProductionEncoderConfig()
-	encoder.EncodeTime = core.EpochTimeEncoder
+	encoder.EncodeTime = zapcore.EpochTimeEncoder
 	switch format {
 	case "json":
-		encoder.EncodeLevel = core.LowercaseLevelEncoder
-		return core.NewJSONEncoder(encoder), nil
+		encoder.EncodeLevel = zapcore.LowercaseLevelEncoder
+		return zapcore.NewJSONEncoder(encoder), nil
 	case "console":
-		encoder.EncodeLevel = core.LowercaseLevelEncoder
-		return core.NewConsoleEncoder(encoder), nil
+		encoder.EncodeLevel = zapcore.LowercaseLevelEncoder
+		return zapcore.NewConsoleEncoder(encoder), nil
 	default:
 		return nil, fmt.Errorf("unknown format %s: must be json or console", format)
 	}
@@ -78,6 +78,6 @@ func newZapLogger(options Options) (Logger, error) {
 	}
 
 	return &zapLogger{
-		logger: zap.New(core.NewCore(encoder, syncer, level), zap.AddCaller(), zap.AddCallerSkip(1)).Sugar(),
+		logger: zap.New(zapcore.NewCore(encoder, syncer, level), zap.AddCaller(), zap.AddCallerSkip(1)).Sugar(),
 	}, nil
 }

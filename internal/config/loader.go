@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	env "github.com/joho/godotenv"
+	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
@@ -50,6 +50,8 @@ const (
 	configName = "config"
 	configType = "yaml"
 	configPath = "configs/"
+
+	envPath = "application.environment"
 )
 
 func loadFile() error {
@@ -77,7 +79,7 @@ func Load() (*Config, error) {
 		config      Config
 	)
 
-	err = env.Load(".env")
+	err = godotenv.Load(".env")
 	if err != nil {
 		log.Println("unable to load the .env file, relying on system environment variables")
 	}
@@ -85,7 +87,7 @@ func Load() (*Config, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	environment = viper.GetString("application.environment")
+	environment = viper.GetString(envPath)
 	switch environment {
 	case "development":
 		err = loadFile()
