@@ -50,7 +50,7 @@ func buildSyncer(output string) (zapcore.WriteSyncer, error) {
 
 func buildEncoder(format string) (zapcore.Encoder, error) {
 	var encoder = zap.NewProductionEncoderConfig()
-	encoder.EncodeTime = zapcore.EpochTimeEncoder
+	encoder.EncodeTime = zapcore.ISO8601TimeEncoder
 	switch format {
 	case "json":
 		encoder.EncodeLevel = zapcore.LowercaseLevelEncoder
@@ -63,16 +63,16 @@ func buildEncoder(format string) (zapcore.Encoder, error) {
 	}
 }
 
-func newZapLogger(options Options) (Logger, error) {
-	encoder, err := buildEncoder(options.Format)
+func newZapLogger(config Config) (Logger, error) {
+	encoder, err := buildEncoder(config.Format)
 	if err != nil {
 		return nil, err
 	}
-	syncer, err := buildSyncer(options.Output)
+	syncer, err := buildSyncer(config.Output)
 	if err != nil {
 		return nil, err
 	}
-	level, err := buildLevel(options.Level)
+	level, err := buildLevel(config.Level)
 	if err != nil {
 		return nil, err
 	}

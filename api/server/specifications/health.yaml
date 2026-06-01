@@ -1,24 +1,24 @@
-openapi: "2.0.0"
+openapi: "3.0.0"
 info:
-  version: 2.0.0
-  title: Health
+  version: 1.0.0
+  title: Health API
 paths:
   /health:
     get:
       responses:
         '200':
-          description: successfully retrieved health
+          description: Successfully retrieved health
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthResponse'
+                $ref: '#/components/schemas/GetHealthResponse'
 components:
   schemas:
-    HealthResponse:
+    GetHealthResponse:
       type: object
       required:
         - condition
       properties:
         condition:
           type: string
-          example: OK
+          example: "Healthy"

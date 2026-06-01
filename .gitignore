@@ -1,1 +1,11 @@
+# ignore IDE files
+.idea
 .vscode
+
+# config & credential files
+.env
+.env.local
+.env.*.local
+
+configs/config.yaml
+configs/config.*.yaml

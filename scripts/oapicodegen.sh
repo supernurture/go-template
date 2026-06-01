@@ -2,13 +2,13 @@
 
 set -e
 
-CONFIG="api/server/config.yaml"
-SPECIFICATIONS="api/server/specifications"
-OUTPUT_DIR="internal/api/server/oapicodegen"
+CONFIG_PATH="api/server/config.yaml"
+SPECIFICATIONS_PATH="api/server/specifications"
 
+OUTPUT_DIR="internal/api/server/oapicodegen"
 mkdir -p "$OUTPUT_DIR"
 
-for file in $(ls "$SPECIFICATIONS"/*.yaml | sort); do
+for file in $(ls "$SPECIFICATIONS_PATH"/*.yaml | sort); do
   [ -e "$file" ] || continue
 
   name=$(basename "$file" .yaml)
@@ -16,7 +16,7 @@ for file in $(ls "$SPECIFICATIONS"/*.yaml | sort); do
   echo "→ generating $name"
 
   go tool oapi-codegen \
-    -config "$CONFIG" \
-    -o "$OUTPUT_DIR/$name.oapicodegen.go" \
+    -config "$CONFIG_PATH" \
+    -o "$OUTPUT_DIR/$name.gen.go" \
     "$file"
 done

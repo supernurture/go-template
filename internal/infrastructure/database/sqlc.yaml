@@ -5,6 +5,6 @@ sql:
     queries: "postgre/audit/queries"
     gen:
       go:
-        package: "sqlcgen"
-        out: "postgre/audit/sqlcgen"
+        package: "sqlcodegen"
+        out: "postgre/audit/sqlcodegen"
         sql_package: "pgx/v5"

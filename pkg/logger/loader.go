@@ -8,12 +8,12 @@ type Logger interface {
 	With(args ...any) Logger
 }
 
-type Options struct {
+type Config struct {
 	Format string
 	Level  string
 	Output string
 }
 
-func Load(options Options) (Logger, error) {
-	return newZapLogger(options)
+func Load(config Config) (Logger, error) {
+	return newZapLogger(config)
 }

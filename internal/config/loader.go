@@ -29,6 +29,7 @@ type DatabaseConfig struct {
 	Name     string
 }
 
+// You can add more database types here in the future, such as MySQL, SQL Server, etc.
 type DatabasesConfig struct {
 	Postgre map[string]DatabaseConfig
 }
@@ -50,8 +51,6 @@ const (
 	configName = "config"
 	configType = "yaml"
 	configPath = "configs/"
-
-	envPath = "application.environment"
 )
 
 func loadFile() error {
@@ -72,14 +71,7 @@ func loadConsul() error {
 }
 
 func Load() (*Config, error) {
-	var (
-		err error
-
-		environment string
-		config      Config
-	)
-
-	err = godotenv.Load(".env")
+	err := godotenv.Load(".env")
 	if err != nil {
 		log.Println("unable to load the .env file, relying on system environment variables")
 	}
@@ -87,8 +79,8 @@ func Load() (*Config, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	environment = viper.GetString(envPath)
-	switch environment {
+	appEnv := viper.GetString("application.environment")
+	switch appEnv {
 	case "development":
 		err = loadFile()
 		if err != nil {
@@ -100,9 +92,10 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("unknown environment %s: must be development, sit, uat, or production", environment)
+		return nil, fmt.Errorf("unknown environment %s: must be development, sit, uat, or production", appEnv)
 	}
 
+	var config Config
 	err = viper.Unmarshal(&config)
 	if err != nil {
 		return nil, fmt.Errorf("unable to unmarshal the config into the struct: %w", err)
