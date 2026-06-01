@@ -2,25 +2,21 @@ package middleware
 
 import (
 	"net/http"
-	"runtime/debug"
 
-	"github.com/Yonathandj/go-template/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/yonathandj/go-template/pkg/logger"
 )
 
 func Recovery(log logger.Logger) gin.HandlerFunc {
-	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
+	return gin.CustomRecovery(func(c *gin.Context, err any) {
 
-		log.Error("panic recovered",
-			"error", recovered,
-			"stack", string(debug.Stack()),
+		log.Error(
+			"panic recovered",
+			"error", err,
 		)
 
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"meta": gin.H{
-				"success": false,
-				"message": "internal server error",
-			},
+			"error": "internal server error",
 		})
 	})
 }

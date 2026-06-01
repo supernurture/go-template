@@ -1,4 +1,4 @@
-module github.com/Yonathandj/go-template
+module github.com/yonathandj/go-template
 
 go 1.26.1
 

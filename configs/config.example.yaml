@@ -4,6 +4,7 @@ application:
   environment:
 
 server:
+  mode:  # test, debug, or release
   port:
   timeout:
 
