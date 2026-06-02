@@ -93,7 +93,7 @@ go-template/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yonathandj/go-template.git
+git clone https://github.com/Yonathandj/go-template.git
 cd go-template
 
 # 2. Copy the example environment file

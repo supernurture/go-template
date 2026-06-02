@@ -3,8 +3,8 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/Yonathandj/go-template/pkg/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/yonathandj/go-template/pkg/logger"
 )
 
 func Recovery(log logger.Logger) gin.HandlerFunc {

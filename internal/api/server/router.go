@@ -3,10 +3,10 @@ package server
 import (
 	"time"
 
+	"github.com/Yonathandj/go-template/internal/api/server/middleware"
+	"github.com/Yonathandj/go-template/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
-	"github.com/yonathandj/go-template/internal/api/server/middleware"
-	"github.com/yonathandj/go-template/pkg/logger"
 )
 
 func RouterInit(log logger.Logger) *gin.Engine {
@@ -16,6 +16,7 @@ func RouterInit(log logger.Logger) *gin.Engine {
 	router.Use(
 		middleware.RequestID(),
 		middleware.Timeout(viper.GetDuration("server.timeout")*time.Second),
+		middleware.Logger(log),
 		middleware.Recovery(log), // always put recovery middleware at the end of the middleware chain
 	)
 
