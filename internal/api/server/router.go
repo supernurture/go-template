@@ -3,7 +3,9 @@ package server
 import (
 	"time"
 
+	"github.com/Yonathandj/go-template/internal/api/server/features/health"
 	"github.com/Yonathandj/go-template/internal/api/server/middleware"
+	"github.com/Yonathandj/go-template/internal/api/server/oapicodegen"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
@@ -18,6 +20,8 @@ func RouterInit(log middleware.Logger) *gin.Engine {
 		middleware.LoggerMiddleware(log),
 		middleware.Recovery(log), // always put recovery middleware at the end of the middleware chain
 	)
+
+	oapicodegen.RegisterHandlers(router, health.NewHandler())
 
 	return router
 }

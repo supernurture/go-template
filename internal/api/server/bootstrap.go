@@ -18,14 +18,14 @@ func NewService() *Service {
 }
 
 func (s *Service) Shutdown() error {
-	for _, fn := range shutdowns {
-		if err := fn(); err != nil {
+	for _, f := range shutdowns {
+		if err := f(); err != nil {
 			return err
 		}
 	}
 
-	for _, fn := range shutdownsWithContext {
-		if err := fn(context.Background()); err != nil {
+	for _, f := range shutdownsWithContext {
+		if err := f(context.Background()); err != nil {
 			return err
 		}
 	}
