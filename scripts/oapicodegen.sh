@@ -12,11 +12,14 @@ for file in $(ls "$SPECIFICATIONS_PATH"/*.yaml | sort); do
   [ -e "$file" ] || continue
 
   name=$(basename "$file" .yaml)
+  
+  # create a subdirectory for each specification to avoid name clashes
+  mkdir -p "$OUTPUT_DIR/$name"
 
   echo "→ generating $name"
 
   go tool oapi-codegen \
     -config "$CONFIG_PATH" \
-    -o "$OUTPUT_DIR/${name}_gen.go" \
+    -o "$OUTPUT_DIR/$name/${name}_gen.go" \
     "$file"
 done
