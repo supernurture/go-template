@@ -17,6 +17,6 @@ for file in $(ls "$SPECIFICATIONS_PATH"/*.yaml | sort); do
 
   go tool oapi-codegen \
     -config "$CONFIG_PATH" \
-    -o "$OUTPUT_DIR/$name.gen.go" \
+    -o "$OUTPUT_DIR/${name}_gen.go" \
     "$file"
 done

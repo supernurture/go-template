@@ -51,12 +51,11 @@ func buildSyncer(output string) (zapcore.WriteSyncer, error) {
 func buildEncoder(format string) (zapcore.Encoder, error) {
 	var encoder = zap.NewProductionEncoderConfig()
 	encoder.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoder.EncodeLevel = zapcore.LowercaseLevelEncoder
 	switch format {
 	case "json":
-		encoder.EncodeLevel = zapcore.LowercaseLevelEncoder
 		return zapcore.NewJSONEncoder(encoder), nil
 	case "console":
-		encoder.EncodeLevel = zapcore.LowercaseLevelEncoder
 		return zapcore.NewConsoleEncoder(encoder), nil
 	default:
 		return nil, fmt.Errorf("unknown format %s: must be json or console", format)
