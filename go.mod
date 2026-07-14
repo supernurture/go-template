@@ -1,4 +1,4 @@
-module github.com/nurture/go-template
+module github.com/supernurture/go-template
 
 go 1.26.2
 

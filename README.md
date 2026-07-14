@@ -67,7 +67,7 @@ The layout follows the [Standard Go Project Layout](https://github.com/golang-st
 ## Getting Started
 
 ```bash
-git clone https://github.com/nurture/go-template.git
+git clone https://github.com/supernurture/go-template.git
 cd go-template
 
 cp .env.example .env                          # then fill in credentials
