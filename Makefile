@@ -5,7 +5,7 @@ BIN_DIR := bin
 APPS := $(notdir $(wildcard cmd/*))
 APP  ?= $(firstword $(APPS))
 
-.PHONY: help run test cover vet lint fmt check tidy build build-all clean oapicodegen sqlcodegen
+.PHONY: help run test cover vet lint fmt check tidy build build-all clean oapicodegen
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-12s %s\n", $$1, $$2}'
@@ -57,6 +57,3 @@ clean: ## Remove build artifacts
 
 oapicodegen: ## Generate OpenAPI server code
 	bash scripts/oapicodegen.sh
-
-sqlcodegen: ## Generate sqlc code
-	go tool sqlc generate -f internal/infrastructure/database/sqlc.yaml

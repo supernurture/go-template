@@ -1,7 +1,7 @@
-application:
+app:
   name:
   version:
-  environment:
+  env: development # development, staging, or production
 
 server:
   mode:  # test, debug, or release
@@ -9,21 +9,47 @@ server:
   timeout:
 
 databases:
-  postgre:
-    analytics:
+  # shared connection-pool settings applied to every driver.
+  pool:
+    max_open_conns: 25
+    max_idle_conns: 5
+    conn_max_lifetime: 30m # 30s, 30m, 1h
+  postgres:
+    example:
       host:
       port:
-      username:
+      user:
       password:
-      name:
-    audit:
+      database: example
+      opts: sslmode=disable
+  sql_server:
+    example:
       host:
       port:
-      username:
+      user:
       password:
-      name:
+      database: example
+      opts: encrypt=disable
+
+services:
+  example:
+    base_url:
+    endpoints:
+      inquiry:
+    timeout:
+    auth:
+      user:
+      password:
+
+worker:
+  example:
+    enabled: true
+    time_interval: 15s # 30s, 30m, 1h
 
 logger:
-  format:  # json or console 
-  level:   # debug, info, warn, or error
-  output:  # stdout, stderr or a file path
+  path: ./logs
+  level: INFO # DEBUG, INFO, WARN, or ERROR
+  rotation_pattern: daily # daily, or size-based via rotation_size_mb
+  rotation_size_mb: 20
+  retention_days: 1
+  console: true # also print JSON logs to stdout
