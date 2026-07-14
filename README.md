@@ -1,5 +1,4 @@
 # go-template
-
 A starter template for Go REST APIs: an OpenAPI-first HTTP server backed by GORM, with reusable building blocks for database access, outbound HTTP, and configuration.
 
 > **Status: work in progress.** The shared packages under `pkg/` are usable today. The HTTP server layer (router, middleware, handlers) is being rebuilt — `cmd/api/main.go`, `internal/config`, and `internal/container` are currently stubs. See [Roadmap](#roadmap).
@@ -22,10 +21,12 @@ A starter template for Go REST APIs: an OpenAPI-first HTTP server backed by GORM
 
 | Concern | Choice |
 |---|---|
-| Language | Go 1.26.1 |
-| ORM / database access | [GORM](https://gorm.io) v1.31 |
-| PostgreSQL driver | [gorm.io/driver/postgres](https://github.com/go-gorm/postgres) v1.6 (pgx under the hood) |
-| OpenAPI code generation | [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) v2.6 |
+| Language | [Go](https://go.dev) |
+| ORM / database access | [GORM](https://gorm.io) |
+| PostgreSQL driver | [gorm.io/driver/postgres](https://github.com/go-gorm/postgres) (pgx under the hood) |
+| OpenAPI code generation | [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) |
+
+Exact versions live in `go.mod` — the single source of truth.
 
 Code generators are declared as [Go tool dependencies](https://go.dev/doc/modules/managing-dependencies#tools) in `go.mod`, so `go tool oapi-codegen` works without a separate install step.
 
@@ -59,7 +60,7 @@ The layout follows the [Standard Go Project Layout](https://github.com/golang-st
 
 ## Prerequisites
 
-- **Go 1.26.1** or later
+- **Go** — see `go.mod` for the minimum version
 - **PostgreSQL**
 - `make` and `bash` (the codegen script is a shell script; on Windows, use Git Bash or WSL)
 
