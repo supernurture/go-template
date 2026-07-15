@@ -7,6 +7,7 @@ A starter template for Go REST APIs: an OpenAPI-first HTTP server backed by GORM
 
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
+- [Conventions](#conventions)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
@@ -45,7 +46,8 @@ go-template/
 │   └── config.example.yaml # Non-secret configuration, committed
 ├── internal/               # Private application code
 │   ├── config/             # Config structs and loading
-│   └── container/          # Dependency wiring
+│   ├── container/          # Dependency wiring
+│   └── server/             # Gin engine, middleware, and route registration
 ├── pkg/                    # Reusable, importable packages
 │   ├── database/           # GORM connection, pooling, transactions
 │   ├── httpclient/         # JSON-oriented outbound HTTP client
@@ -57,6 +59,11 @@ go-template/
 ```
 
 The layout follows the [Standard Go Project Layout](https://github.com/golang-standards/project-layout): `cmd/` for entrypoints, `internal/` for code that must not be imported by other modules, `pkg/` for packages that may be.
+
+## Conventions
+
+- **Router files.** Keep the Gin engine setup, middleware, and route registration together in `internal/server/router.go`. Split route registration into `routes.go` once it gets noisy (~10-15 routes or the file grows past ~150 lines).
+- **Transport layer.** `internal/server` assumes HTTP is the only way in. If a second transport is added (gRPC, message-queue consumer, CLI), promote to a `transport` layer — `internal/transport/http/`, `internal/transport/grpc/` — and keep business logic protocol-agnostic underneath so no service knows how the request arrived.
 
 ## Prerequisites
 
