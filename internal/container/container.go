@@ -9,8 +9,8 @@ type Container struct {
 	shutdowns []func() error
 }
 
-// ContainerInit builds the Container: logger, database connections, HTTP client, and their shutdown hooks. Call Close when done.
-func ContainerInit(cfg *config.Config) (*Container, error) {
+// NewContainer builds the Container: logger, database connections, HTTP client, and their shutdown hooks. Call Close when done.
+func NewContainer(cfg *config.Config) (*Container, error) {
 	return &Container{
 		// Shutdown hooks run in order, logger last so earlier hooks can still log.
 		shutdowns: []func() error{},

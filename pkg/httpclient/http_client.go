@@ -18,7 +18,7 @@ type Client struct {
 	headers map[string]string
 }
 
-// Option configures a Client during Init.
+// Option configures a Client during New.
 type Option func(*Client)
 
 // WithTimeout sets the underlying http.Client timeout.
@@ -46,8 +46,8 @@ func WithTransport(transport http.RoundTripper) Option {
 	return func(c *Client) { c.http.Transport = transport }
 }
 
-// Init initializes a new Client with the provided options.
-func Init(opts ...Option) *Client {
+// New initializes a new Client with the provided options.
+func New(opts ...Option) *Client {
 	client := &Client{
 		http:    &http.Client{Timeout: 30 * time.Second},
 		headers: map[string]string{},

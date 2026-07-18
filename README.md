@@ -101,7 +101,7 @@ Configuration is split in two, by whether a value is a secret.
 
 ## Packages
 
-**`pkg/database`** — opens a pooled GORM connection with `PostgresInit`, applying the `PoolConfig` limits and pinging the database before returning. It logs a warning when the connection string has no `sslmode=require`/`verify`, so an unencrypted link never passes silently. `WithTransaction` and `WithTransactionResult` run a function inside a transaction, committing on success and rolling back on error.
+**`pkg/database`** — opens a pooled GORM connection with `NewPostgres`, applying the `PoolConfig` limits and pinging the database before returning. It logs a warning when the connection string has no `sslmode=require`/`verify`, so an unencrypted link never passes silently. `WithTransaction` and `WithTransactionResult` run a function inside a transaction, committing on success and rolling back on error.
 
 **`pkg/httpclient`** — a small JSON client over `net/http`, configured with options (`WithBaseURL`, `WithTimeout`, `WithHeader`, `WithTransport`). `GetJSON` and `PostJSON` cover the common cases; `Do` is there when you need the raw response. Responses with status ≥ 400 become errors carrying a truncated body.
 
