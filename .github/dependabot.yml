@@ -3,6 +3,9 @@ updates:
   - package-ecosystem: gomod
     directory: /
     target-branch: development
+    # Let a freshly published version sit a week before we pick it up.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
     # Conventional commits: the Review workflow's commitlint fails anything else.
@@ -12,6 +15,9 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     target-branch: development
+    # Let a freshly published version sit a week before we pick it up.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
     commit-message:
