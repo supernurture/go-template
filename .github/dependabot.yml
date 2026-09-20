@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: development
+    schedule:
+      interval: weekly
+    # Conventional commits: the Review workflow's commitlint fails anything else.
+    commit-message:
+      prefix: chore
+      include: scope
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: development
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope

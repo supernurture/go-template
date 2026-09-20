@@ -22,6 +22,6 @@ jobs:
         with:
           reviews: code,vulnerability,commit-message
           fail-on: high
-          scope: changed
+          scope: ${{ github.event_name == 'workflow_dispatch' && 'all' || 'changed' }}
           pr-comment: "true"
           upload-artifact: review-report
