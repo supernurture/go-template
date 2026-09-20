@@ -69,6 +69,15 @@ func RequestIDFrom(ctx context.Context) string {
 	return reqID
 }
 
+// RequestContext unwraps the *gin.Context the generated handlers pass down. Work that outlives
+// the request must not hold it: gin pools it and rebinds c.Request for the next one.
+func RequestContext(ctx context.Context) context.Context {
+	if c, ok := ctx.(*gin.Context); ok && c.Request != nil {
+		return c.Request.Context()
+	}
+	return ctx
+}
+
 // AccessLog logs one line per request: 5xx as error, 4xx as warn, rest as info.
 func AccessLog(log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
