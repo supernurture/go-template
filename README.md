@@ -62,7 +62,7 @@ The `example_notes` table comes from `scripts/schema.sql`, which compose mounts 
 1. Write `api/server/specs/<name>.yaml`.
 2. `make oapicodegen` — generates `internal/api/server/oapicodegen/<name>/`.
 3. Implement `StrictServerInterface` in `internal/api/server/modules/<name>/`, following the four files above.
-4. Register it in `register()` in `internal/api/server/router.go`, wiring `NewRepository` → `NewService` → `NewHandler`.
+4. Register it in `register()` in `internal/api/server/router.go`, wiring `NewRepository` → `NewService` → `NewHandler`, through `RegisterHandlersWithOptions` and `NewStrictHandlerWithOptions` with `invalidParam`, `badRequest` and `internalError` as the existing modules do: the generated defaults write internal error messages into the response, keyed `msg` instead of the spec's `message`.
 5. If it needs a table, add it to `scripts/schema.sql` and replay with `docker compose down -v && docker compose up -d`.
 
 One spec per module: every route in `<name>.yaml` is registered in a single call, so a module is mounted whole or not at all.
@@ -129,7 +129,7 @@ That same context carries the request ID. Read it with `middleware.RequestIDFrom
 
 ## Requirements
 
-Go 1.26+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the version `.golangci.yml` is written for — the config uses the v1 format, which v2 does not read.
+Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the version `.golangci.yml` is written for — the config uses the v1 format, which v2 does not read.
 
 Beyond the golangci-lint defaults the config turns on `errorlint` (a `%v` where `%w` was meant silently breaks `errors.Is`), `bodyclose`, `sqlclosecheck`, `revive`, and `lll` at 120 columns with tabs counted as four. Generated code under `oapicodegen/` is excluded, since `make oapicodegen` overwrites any fix made there. A `//nolint` must name its linter and give a reason.
 

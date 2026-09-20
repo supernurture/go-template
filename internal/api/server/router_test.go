@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -139,6 +140,87 @@ func TestNewRouterServesExample(t *testing.T) {
 			t.Error(err)
 		}
 	})
+
+	t.Run("handler error stays out of the response body", func(t *testing.T) {
+		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).
+			WillReturnError(errors.New("pq: secret internal detail"))
+
+		rec := get(t, router, "/example/notes")
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+		}
+		if got, want := rec.Body.String(), `{"message":"internal server error"}`; got != want {
+			t.Errorf("body = %q, want %q", got, want)
+		}
+	})
+}
+
+// The generated handlers sit behind the middleware chain, which must still get to answer.
+func TestNewRouterLetsMiddlewareAnswerHandlerErrors(t *testing.T) {
+	t.Run("timeout is 504", func(t *testing.T) {
+		deps, mock := withPostgres(t, withRedis(t, newTestDeps(t)))
+		cfg := testConfig()
+		cfg.Server.Timeout = 50 * time.Millisecond
+		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).
+			WillDelayFor(time.Second).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+		if rec := get(t, newTestRouter(t, cfg, deps), "/example/notes"); rec.Code != http.StatusGatewayTimeout {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusGatewayTimeout)
+		}
+	})
+
+	post := func(t *testing.T, cfg *config.Config, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		deps, _ := withPostgres(t, withRedis(t, newTestDeps(t)))
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/example/notes", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		newTestRouter(t, cfg, deps).ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("oversized body is 413", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Server.MaxBodyBytes = 16
+		rec := post(t, cfg, `{"title":"`+strings.Repeat("x", 64)+`"}`)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+		}
+	})
+
+	// Every 400 uses the spec's Error shape, whichever generated layer rejected the request.
+	badRequests := map[string]struct {
+		rec  func(t *testing.T) *httptest.ResponseRecorder
+		want string
+	}{
+		"empty body": {
+			rec:  func(t *testing.T) *httptest.ResponseRecorder { return post(t, testConfig(), "") },
+			want: `{"message":"a JSON body is required"}`,
+		},
+		"undecodable body": {
+			rec:  func(t *testing.T) *httptest.ResponseRecorder { return post(t, testConfig(), `{"title":`) },
+			want: `{"message":"unexpected EOF"}`,
+		},
+		"unparsable query parameter": {
+			rec: func(t *testing.T) *httptest.ResponseRecorder {
+				deps, _ := withPostgres(t, withRedis(t, newTestDeps(t)))
+				return get(t, newTestRouter(t, testConfig(), deps), "/example/notes?limit=abc")
+			},
+			want: `{"message":"Invalid format for parameter limit: `,
+		},
+	}
+	for name, tc := range badRequests {
+		t.Run(name+" is 400 with a message", func(t *testing.T) {
+			rec := tc.rec(t)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if got := rec.Body.String(); !strings.HasPrefix(got, tc.want) {
+				t.Errorf("body = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestNewRouterSkipsExampleWithoutEveryDependency(t *testing.T) {
