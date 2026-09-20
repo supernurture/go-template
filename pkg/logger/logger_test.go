@@ -3,6 +3,7 @@ package logger
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,8 +151,22 @@ func TestReportCallerAddsCaller(t *testing.T) {
 	}
 }
 
-func TestConsoleTeesToStdout(t *testing.T) {
+func TestConsoleTeesToStderr(t *testing.T) {
 	base := t.TempDir()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	stderr := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = stderr })
+
+	console := make(chan string, 1)
+	go func() {
+		out, _ := io.ReadAll(r)
+		console <- string(out)
+	}()
 
 	log, err := New(Config{ServiceName: "go", Path: base, Console: true})
 	if err != nil {
@@ -159,6 +174,11 @@ func TestConsoleTeesToStdout(t *testing.T) {
 	}
 	log.Info("go-to-console", nil)
 	_ = log.Close()
+	_ = w.Close()
+
+	if out := <-console; !strings.Contains(out, "go-to-console") {
+		t.Errorf("Console must write to stderr; got %q", out)
+	}
 
 	if !strings.Contains(readLogFile(t, filepath.Join(base, "go")), "go-to-console") {
 		t.Error("Console must tee, not replace the file sink")

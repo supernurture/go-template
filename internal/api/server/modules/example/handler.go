@@ -24,6 +24,8 @@ func (h *Handler) GetExampleVisits(
 	ctx context.Context,
 	_ examplecontract.GetExampleVisitsRequestObject,
 ) (examplecontract.GetExampleVisitsResponseObject, error) {
+	ctx = middleware.RequestContext(ctx)
+
 	visits, err := h.service.CountVisit(ctx)
 	if err != nil {
 		return nil, err
@@ -36,6 +38,8 @@ func (h *Handler) ListExampleNotes(
 	ctx context.Context,
 	request examplecontract.ListExampleNotesRequestObject,
 ) (examplecontract.ListExampleNotesResponseObject, error) {
+	ctx = middleware.RequestContext(ctx)
+
 	notes, err := h.service.ListNotes(ctx, request.Params.Limit)
 	if err != nil {
 		if message, ok := validationMessage(err); ok {
@@ -55,6 +59,8 @@ func (h *Handler) CreateExampleNote(
 	ctx context.Context,
 	request examplecontract.CreateExampleNoteRequestObject,
 ) (examplecontract.CreateExampleNoteResponseObject, error) {
+	ctx = middleware.RequestContext(ctx)
+
 	if request.Body == nil {
 		return examplecontract.CreateExampleNote400JSONResponse{Message: "a JSON body is required"}, nil
 	}

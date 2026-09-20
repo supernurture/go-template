@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Cheap checks first: a typo should not cost a lint build.
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          [ -z "$unformatted" ] || { echo "::error::not formatted (run make fmt):"; echo "$unformatted"; exit 1; }
+
+      - name: Vet
+        run: make vet
+
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum \
+            || { echo "::error::go.mod/go.sum are stale -- run 'make tidy' and commit the result"; exit 1; }
+
+      # Keyed on the Makefile so bumping GOLANGCI_VERSION cannot leave a stale binary cached.
+      - name: Cache golangci-lint
+        id: lint-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/go/bin/golangci-lint
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      - name: Install golangci-lint
+        if: steps.lint-cache.outputs.cache-hit != 'true'
+        run: make lint-install
+
+      - name: Lint
+        run: make lint
+
+      # Unit tests only: Postgres and Redis are mocked (sqlmock, miniredis), so no services are needed.
+      - name: Test
+        run: make test

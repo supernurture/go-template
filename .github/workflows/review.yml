@@ -14,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
-      - uses: supernurture/agnostic-pipeline-review@v1
+      - uses: supernurture/agnostic-pipeline-review@36a50e81e874fdff9b800a79d876f6dbe01d29bd # v1
         with:
           reviews: code,vulnerability,commit-message
           fail-on: high
-          scope: changed
+          scope: ${{ github.event_name == 'workflow_dispatch' && 'all' || 'changed' }}
           pr-comment: "true"
           upload-artifact: review-report
