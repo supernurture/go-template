@@ -94,6 +94,7 @@ internal/config/       Config structs, loading, validation
 internal/container/    Opens every configured dependency; Close unwinds in reverse
 internal/httpclient/   The app's configured upstream clients
 internal/middleware/   Request ID, access log, recovery, timeout, security headers, CORS, body limit
+internal/pkg/          App-specific helpers, not meant to be lifted out
 pkg/                   Reusable, app-agnostic: database, redis, logger, httpclient, util
 ```
 
