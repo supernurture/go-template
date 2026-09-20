@@ -28,7 +28,7 @@ type Config struct {
 	Path         string // base log dir, defaults to ./logs
 	Level        string // DEBUG, INFO, WARN, or ERROR (any case); defaults to INFO
 	ReportCaller bool
-	Console      bool // also write JSON logs to stdout
+	Console      bool // also write JSON logs to stderr
 	Rotation     RotationOptions
 }
 
@@ -69,7 +69,7 @@ func New(cfg Config) (*Logger, error) {
 	cores := []zapcore.Core{
 		zapcore.NewCore(encoder, zapcore.AddSync(rotator), parseLevel(cfg.Level))}
 	if cfg.Console {
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), parseLevel(cfg.Level)))
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stderr), parseLevel(cfg.Level)))
 	}
 	core := zapcore.NewTee(cores...)
 

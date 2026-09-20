@@ -64,4 +64,4 @@ logger:
   rotation_pattern: daily # daily, or size-based via rotation_size_mb
   rotation_size_mb: 20 # only consulted when rotation_pattern is not daily
   retention_days: 1 # enough for local work; production usually wants weeks
-  console: true # also print JSON logs to stdout
+  console: true # also print JSON logs to stderr
