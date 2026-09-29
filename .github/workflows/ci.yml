@@ -57,3 +57,7 @@ jobs:
       # Unit tests only: Postgres and Redis are mocked (sqlmock, miniredis), so no services are needed.
       - name: Test
         run: make test
+
+      # Fails only on vulnerabilities in code the app calls.
+      - name: Vulnerabilities
+        run: make vuln

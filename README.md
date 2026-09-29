@@ -127,6 +127,7 @@ That same context carries the request ID. Read it with `middleware.RequestIDFrom
 | `make cover-gaps` | List functions that are not fully covered |
 | `make check` | fmt, vet, lint, test |
 | `make lint-install` | Install the pinned golangci-lint |
+| `make vuln` | govulncheck: known vulnerabilities in code the app calls |
 | `make oapicodegen` | Regenerate server code from the specs |
 | `make build` / `build-all` | Host binary / cross-compile |
 | `make docker-build` / `docker-run` | Distroless image |
