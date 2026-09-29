@@ -139,6 +139,8 @@ Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `ma
 
 Beyond the golangci-lint defaults the config turns on `errorlint` (a `%v` where `%w` was meant silently breaks `errors.Is`), `bodyclose`, `sqlclosecheck`, `revive`, and `lll` at 120 columns with tabs counted as four. Generated code under `oapicodegen/` is excluded, since `make oapicodegen` overwrites any fix made there. A `//nolint` must name its linter and give a reason.
 
+In production code, exported functions come before unexported ones, so a file opens with what it offers; tests keep their helpers first. This is a convention for review, not a lint rule — leave a helper next to its only caller when splitting them would read worse.
+
 ## Coverage
 
 `make cover-gaps` prints the current number and everything short of 100%. One branch is
