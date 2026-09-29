@@ -115,7 +115,7 @@ Every request passes through `middleware.Default`: request ID, access log, panic
 
 That same context carries the request ID. Read it with `middleware.RequestIDFrom(ctx)` and every line you log lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note.
 
-`/health` is the liveness probe and never touches a dependency; `/ready` pings every database and Redis from `container.Pings` and answers 503 if one is down, logging which. Point a Kubernetes readiness probe at `/ready` and a liveness probe at `/health`, so an outage takes the pod out of rotation instead of restarting it.
+`/health` is the liveness probe and never touches a dependency; `/ready` pings every database and Redis from `container.Pings` and answers 503 if one is down, logging which. The checks run concurrently, each capped at 2s, so give the probe a `timeoutSeconds` of 3 or more. Point a Kubernetes readiness probe at `/ready` and a liveness probe at `/health`, so an outage takes the pod out of rotation instead of restarting it.
 
 ## Make targets
 

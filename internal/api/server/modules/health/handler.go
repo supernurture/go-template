@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"time"
 
 	healthcontract "github.com/supernurture/go-template/internal/api/server/oapicodegen/health"
 	"github.com/supernurture/go-template/internal/middleware"
@@ -13,10 +14,13 @@ type Handler struct {
 	log    *logger.Logger
 }
 
-// NewHandler takes the readiness checks keyed by dependency name, as container.Pings returns them.
+// NewHandler takes readiness checks keyed by dependency name, as from container.Pings.
 func NewHandler(checks map[string]func(context.Context) error, log *logger.Logger) *Handler {
 	return &Handler{checks: checks, log: log}
 }
+
+// checkTimeout caps each readiness check.
+var checkTimeout = 2 * time.Second
 
 var _ healthcontract.StrictServerInterface = (*Handler)(nil)
 
@@ -25,19 +29,33 @@ func (h *Handler) GetHealth(
 	return healthcontract.GetHealth200JSONResponse{Condition: "Healthy"}, nil
 }
 
-// GetReady runs every check, not just up to the first failure, so the log names every dependency that is down.
+// GetReady runs every check, so the log names every dependency that is down.
 func (h *Handler) GetReady(
 	ctx context.Context, _ healthcontract.GetReadyRequestObject) (healthcontract.GetReadyResponseObject, error) {
 	ctx = middleware.RequestContext(ctx)
 
-	ready := true
+	// Concurrent, each with its own deadline, so one hanging dependency cannot stall the rest.
+	type result struct {
+		name string
+		err  error
+	}
+	results := make(chan result, len(h.checks))
 	for name, check := range h.checks {
-		if err := check(ctx); err != nil {
+		go func() {
+			checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
+			defer cancel()
+			results <- result{name: name, err: check(checkCtx)}
+		}()
+	}
+
+	ready := true
+	for range h.checks {
+		if res := <-results; res.err != nil {
 			ready = false
 			h.log.Warn("readiness check failed", map[string]any{
 				"request_id": middleware.RequestIDFrom(ctx),
-				"dependency": name,
-				"error":      err.Error(),
+				"dependency": res.name,
+				"error":      res.err.Error(),
 			})
 		}
 	}

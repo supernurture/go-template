@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	healthcontract "github.com/supernurture/go-template/internal/api/server/oapicodegen/health"
 	"github.com/supernurture/go-template/pkg/logger"
@@ -79,4 +80,44 @@ func TestGetReady(t *testing.T) {
 			t.Errorf("log does not name the failing dependency:\n%s", written)
 		}
 	})
+}
+
+// A hanging check must not stall the answer or get a healthy dependency blamed.
+func TestGetReadyBoundsEachCheck(t *testing.T) {
+	orig := checkTimeout
+	checkTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { checkTimeout = orig })
+
+	hang := func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+	healthy := func(ctx context.Context) error { return ctx.Err() }
+	checks := map[string]func(context.Context) error{"redis/cache": hang, "postgres/main": healthy}
+
+	log, dir := newTestLogger(t)
+	start := time.Now()
+	response, err := NewHandler(checks, log).GetReady(context.Background(), healthcontract.GetReadyRequestObject{})
+	if err != nil {
+		t.Fatalf("GetReady: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("GetReady took %v, want it bounded by checkTimeout", elapsed)
+	}
+	if _, ok := response.(healthcontract.GetReady503JSONResponse); !ok {
+		t.Errorf("response = %#v, want a 503", response)
+	}
+
+	_ = log.Close()
+	files, _ := filepath.Glob(filepath.Join(dir, "test", "*.log"))
+	if len(files) != 1 {
+		t.Fatalf("log files = %v, want one", files)
+	}
+	written, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(written), `"dependency":"redis/cache"`) {
+		t.Errorf("log does not name the hanging dependency:\n%s", written)
+	}
+	if strings.Contains(string(written), `"dependency":"postgres/main"`) {
+		t.Errorf("the healthy dependency was reported as failing:\n%s", written)
+	}
 }
