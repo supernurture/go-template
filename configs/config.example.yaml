@@ -7,6 +7,7 @@ server:
   mode: debug # test, debug, or release; release drops gin's route dump and startup warnings
   port: 8080
   timeout: 30s # deadline for a handler and everything it calls; the write timeout is this plus 5s
+  shutdown_timeout: 8s # drain on SIGTERM; keep under the platform grace period
   cors_origins: [] # e.g. ["https://app.example.com"]; empty grants no browser origin, ["*"] rules out cookies
   trusted_proxies: [] # e.g. ["10.0.0.0/8"]; empty trusts only the direct peer for client IPs
   max_body_bytes: 1048576 # 1 MiB; 0 uses the middleware default

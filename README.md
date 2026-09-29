@@ -88,6 +88,8 @@ Every entry under `databases:` and `redis:` is opened **and pinged** at startup,
 
 `server.timeout` is the deadline a handler and everything it calls gets. The server's write timeout is derived from it, so raising one raises the other; keep every upstream `services.*.timeout` below it, or the request dies before the shorter deadline can fire.
 
+On SIGTERM the server stops accepting and waits `server.shutdown_timeout` (default 8s) for requests in flight. Keep it under your platform's grace period — 10s for `docker stop`, 30s by default on Kubernetes — or the process is killed mid-drain. A request running longer than it is cut off, so where the grace period allows, set it above `server.timeout`.
+
 ## Layout
 
 ```
