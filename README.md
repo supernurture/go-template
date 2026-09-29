@@ -56,7 +56,7 @@ Take only the layers you need. `modules/health` has no rules and no table of its
 
 `Repository.Create` writes the note and its audit row through `database.WithTransaction`, so a note can never exist without its event. Reach for that helper whenever two writes have to land together; a single write does not need one, because GORM already wraps it.
 
-A module mounts only when **every** dependency it needs is configured. Remove `redis:` from `config.yaml` and all three routes return 404 rather than failing at startup or panicking on the first request. See `register` in `internal/api/server/router.go`.
+A module mounts only when **every** dependency it needs is configured. Remove `redis:` from `config.yaml` and all three routes return 404 rather than failing at startup or panicking on the first request; a warning at startup names the module and what it needs. See `register` in `internal/api/server/router.go`.
 
 The `example_notes` table comes from `scripts/schema.sql`, which compose mounts into the Postgres entrypoint — it runs once, when the data volume is first created. After editing it, replay with `docker compose down -v && docker compose up -d`. Reach for a migration tool (goose, atlas) once you have a schema that has to change in place.
 
