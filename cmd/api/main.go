@@ -22,6 +22,9 @@ const (
 
 	readTimeout = 15 * time.Second
 	idleTimeout = 60 * time.Second
+
+	// Under docker stop's 10s grace period.
+	defaultShutdownTimeout = 8 * time.Second
 )
 
 var (
@@ -29,8 +32,6 @@ var (
 	listen    = net.Listen
 	newRouter = server.NewRouter
 	closeDeps = func(deps *container.Container) error { return deps.Close() }
-
-	shutdownTimeout = 8 * time.Second
 )
 
 func main() {
@@ -88,6 +89,11 @@ func run(ctx context.Context) (err error) {
 	case serveErr := <-serveErrCh:
 		return fmt.Errorf("serve: %w", serveErr)
 	case <-ctx.Done():
+	}
+
+	shutdownTimeout := cfg.Server.ShutdownTimeout
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = defaultShutdownTimeout
 	}
 	deps.Logger.Info("shutting down", map[string]any{"timeout": shutdownTimeout.String()})
 

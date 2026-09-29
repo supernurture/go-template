@@ -116,6 +116,19 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestLoadLoggerDisableFile(t *testing.T) {
+	chdirTemp(t)
+	writeFile(t, configFile(), validConfig+"  console: true\n  disable_file: true\n")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Logger.DisableFile {
+		t.Error("logger.disable_file = false, want true")
+	}
+}
+
 const datastoreConfig = validConfig + `
 databases:
   postgres:
@@ -208,6 +221,17 @@ func TestLoadErrors(t *testing.T) {
 			name:  "fails validation",
 			files: map[string]string{configFile(): "app:\n  name: template\n"},
 			want:  "invalid config",
+		},
+		{
+			name: "negative shutdown timeout",
+			files: map[string]string{configFile(): strings.Replace(validConfig,
+				"  timeout: 40s\n", "  timeout: 40s\n  shutdown_timeout: -1s\n", 1)},
+			want: "ShutdownTimeout",
+		},
+		{
+			name:  "file disabled with no console left",
+			files: map[string]string{configFile(): validConfig + "  disable_file: true\n"},
+			want:  "Console",
 		},
 		{
 			name:  "service base_url is not a url",

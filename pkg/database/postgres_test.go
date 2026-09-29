@@ -27,7 +27,12 @@ func TestNewPostgres(t *testing.T) {
 	mock.ExpectPing()
 
 	orig := gormOpen
-	gormOpen = func(gorm.Dialector, ...gorm.Option) (*gorm.DB, error) { return db, nil }
+	gormOpen = func(_ gorm.Dialector, opts ...gorm.Option) (*gorm.DB, error) {
+		if cfg, ok := opts[0].(*gorm.Config); !ok || !cfg.DisableAutomaticPing {
+			t.Error("gorm must not ping on open: its ping has no deadline, ours does")
+		}
+		return db, nil
+	}
 	t.Cleanup(func() { gormOpen = orig })
 
 	got, err := NewPostgres(
@@ -52,6 +57,12 @@ func TestNewPostgres(t *testing.T) {
 	if _, err := NewPostgres(
 		"localhost", 2222, "user", "password", "database", "sslmode=require", PoolConfig{}); err == nil {
 		t.Error("expected configurePool failure")
+	}
+
+	gormOpen = func(gorm.Dialector, ...gorm.Option) (*gorm.DB, error) { return nil, errors.New("boom") }
+	if _, err := NewPostgres(
+		"localhost", 2222, "user", "password", "database", "sslmode=require", PoolConfig{}); err == nil {
+		t.Error("expected open failure")
 	}
 }
 

@@ -2,19 +2,66 @@ package health
 
 import (
 	"context"
+	"time"
 
 	healthcontract "github.com/supernurture/go-template/internal/api/server/oapicodegen/health"
+	"github.com/supernurture/go-template/internal/middleware"
+	"github.com/supernurture/go-template/pkg/logger"
 )
 
-type Handler struct{}
-
-func NewHandler() *Handler {
-	return &Handler{}
+type Handler struct {
+	checks map[string]func(context.Context) error
+	log    *logger.Logger
 }
+
+// NewHandler takes readiness checks keyed by dependency name, as from container.Pings.
+func NewHandler(checks map[string]func(context.Context) error, log *logger.Logger) *Handler {
+	return &Handler{checks: checks, log: log}
+}
+
+// checkTimeout caps each readiness check.
+var checkTimeout = 2 * time.Second
 
 var _ healthcontract.StrictServerInterface = (*Handler)(nil)
 
 func (h *Handler) GetHealth(
 	_ context.Context, _ healthcontract.GetHealthRequestObject) (healthcontract.GetHealthResponseObject, error) {
 	return healthcontract.GetHealth200JSONResponse{Condition: "Healthy"}, nil
+}
+
+// GetReady runs every check, so the log names every dependency that is down.
+func (h *Handler) GetReady(
+	ctx context.Context, _ healthcontract.GetReadyRequestObject) (healthcontract.GetReadyResponseObject, error) {
+	ctx = middleware.RequestContext(ctx)
+
+	// Concurrent, each with its own deadline, so one hanging dependency cannot stall the rest.
+	type result struct {
+		name string
+		err  error
+	}
+	results := make(chan result, len(h.checks))
+	for name, check := range h.checks {
+		go func() {
+			checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
+			defer cancel()
+			results <- result{name: name, err: check(checkCtx)}
+		}()
+	}
+
+	ready := true
+	for range h.checks {
+		if res := <-results; res.err != nil {
+			ready = false
+			h.log.Warn("readiness check failed", map[string]any{
+				"request_id": middleware.RequestIDFrom(ctx),
+				"dependency": res.name,
+				"error":      res.err.Error(),
+			})
+		}
+	}
+
+	if !ready {
+		return healthcontract.GetReady503JSONResponse{Condition: "NotReady"}, nil
+	}
+	return healthcontract.GetReady200JSONResponse{Condition: "Ready"}, nil
 }

@@ -20,7 +20,7 @@ func NewSQLServer(
 
 	db, err := gormOpen(
 		sqlserver.Open(sqlServerDSN(host, port, user, password, database, opts)),
-		&gorm.Config{Logger: gormLogger},
+		gormConfig(),
 	)
 	if err != nil {
 		return nil, err

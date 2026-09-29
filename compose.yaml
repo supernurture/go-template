@@ -14,7 +14,7 @@ services:
       # Runs once, when the volume is first created. `docker compose down -v` replays it.
       - ./scripts/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d example"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d example"]
       interval: 5s
       timeout: 3s
       retries: 10

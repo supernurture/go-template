@@ -195,9 +195,9 @@ func TestRunReportsDependencyCloseFailure(t *testing.T) {
 func TestRunReportsShutdownTimeout(t *testing.T) {
 	port, listener := freePort(t)
 	_ = listener.Close()
-	writeConfig(t, validConfig(port))
-
-	swap(t, &shutdownTimeout, 300*time.Millisecond)
+	// Via the config, so this also covers server.shutdown_timeout.
+	const timeout = "  timeout: 5s\n"
+	writeConfig(t, strings.Replace(validConfig(port), timeout, timeout+"  shutdown_timeout: 300ms\n", 1))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

@@ -17,6 +17,9 @@ The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs edi
 curl localhost:8080/health
 # {"condition":"Healthy"}
 
+curl localhost:8080/ready
+# {"condition":"Ready"}                   <- every database and Redis answered a ping; 503 otherwise
+
 curl localhost:8080/example/visits
 # {"visits":1}                            <- Redis
 
@@ -49,11 +52,11 @@ It is split into four files, the shape to follow for a module that has dependenc
 
 The handler does no validation and holds no client, so the rules are testable without HTTP; the service returns a `ValidationError` for a caller mistake and a wrapped error for anything else, and the handler turns the first into the spec's `400` and lets the second become a `500`. Nothing above `repository.go` sees a `*gorm.DB`.
 
-Take only the layers you need. `modules/health` has no dependencies and no rules, so it is a single `handler.go` — add `service.go` when there is a rule to enforce, `repository.go` when there is a table.
+Take only the layers you need. `modules/health` has no rules and no table of its own, so it is a single `handler.go` — add `service.go` when there is a rule to enforce, `repository.go` when there is a table.
 
 `Repository.Create` writes the note and its audit row through `database.WithTransaction`, so a note can never exist without its event. Reach for that helper whenever two writes have to land together; a single write does not need one, because GORM already wraps it.
 
-A module mounts only when **every** dependency it needs is configured. Remove `redis:` from `config.yaml` and all three routes return 404 rather than failing at startup or panicking on the first request. See `register` in `internal/api/server/router.go`.
+A module mounts only when **every** dependency it needs is configured. Remove `redis:` from `config.yaml` and all three routes return 404 rather than failing at startup or panicking on the first request; a warning at startup names the module and what it needs. See `register` in `internal/api/server/router.go`.
 
 The `example_notes` table comes from `scripts/schema.sql`, which compose mounts into the Postgres entrypoint — it runs once, when the data volume is first created. After editing it, replay with `docker compose down -v && docker compose up -d`. Reach for a migration tool (goose, atlas) once you have a schema that has to change in place.
 
@@ -66,6 +69,8 @@ The `example_notes` table comes from `scripts/schema.sql`, which compose mounts 
 5. If it needs a table, add it to `scripts/schema.sql` and replay with `docker compose down -v && docker compose up -d`.
 
 One spec per module: every route in `<name>.yaml` is registered in a single call, so a module is mounted whole or not at all.
+
+CI regenerates the contracts and fails if they differ from what is committed. That includes a Dependabot bump of oapi-codegen whose output changes: run `make oapicodegen` on that PR's branch and commit the result.
 
 The generated server does not validate request bodies against the schema. Validate in the service and return a `ValidationError` — `modules/example/service.go` does this.
 
@@ -82,6 +87,8 @@ The key must already exist in `config.yaml` — an environment variable for a ke
 Every entry under `databases:` and `redis:` is opened **and pinged** at startup, so a block you are not running yet must be removed or commented out, not left blank. `services:` only builds HTTP clients; an unreachable `base_url` costs nothing until a handler calls it, though a malformed one is rejected at startup along with a service that declares no endpoints.
 
 `server.timeout` is the deadline a handler and everything it calls gets. The server's write timeout is derived from it, so raising one raises the other; keep every upstream `services.*.timeout` below it, or the request dies before the shorter deadline can fire.
+
+On SIGTERM the server stops accepting and waits `server.shutdown_timeout` (default 8s) for requests in flight. Keep it under your platform's grace period — 10s for `docker stop`, 30s by default on Kubernetes — or the process is killed mid-drain. A request running longer than it is cut off, so where the grace period allows, set it above `server.timeout`.
 
 ## Layout
 
@@ -112,6 +119,8 @@ Every request passes through `middleware.Default`: request ID, access log, panic
 
 That same context carries the request ID. Read it with `middleware.RequestIDFrom(ctx)` and every line you log lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note.
 
+`/health` is the liveness probe and never touches a dependency; `/ready` pings every database and Redis from `container.Pings` and answers 503 if one is down, logging which. The checks run concurrently, each capped at 2s, so give the probe a `timeoutSeconds` of 3 or more. Point a Kubernetes readiness probe at `/ready` and a liveness probe at `/health`, so an outage takes the pod out of rotation instead of restarting it.
+
 ## Make targets
 
 | Target | |
@@ -122,27 +131,32 @@ That same context carries the request ID. Read it with `middleware.RequestIDFrom
 | `make cover-gaps` | List functions that are not fully covered |
 | `make check` | fmt, vet, lint, test |
 | `make lint-install` | Install the pinned golangci-lint |
+| `make vuln` | govulncheck: known vulnerabilities in code the app calls |
 | `make oapicodegen` | Regenerate server code from the specs |
 | `make build` / `build-all` | Host binary / cross-compile |
 | `make docker-build` / `docker-run` | Distroless image |
 
 `docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Point the hosts at `host.docker.internal` (or run the app inside the compose network) when you containerise it.
 
+In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the platform to collect, and nothing is written inside the image.
+
 ## Requirements
 
-Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the version `.golangci.yml` is written for — the config uses the v1 format, which v2 does not read.
+Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the v2 release `.golangci.yml` is written for.
 
 Beyond the golangci-lint defaults the config turns on `errorlint` (a `%v` where `%w` was meant silently breaks `errors.Is`), `bodyclose`, `sqlclosecheck`, `revive`, and `lll` at 120 columns with tabs counted as four. Generated code under `oapicodegen/` is excluded, since `make oapicodegen` overwrites any fix made there. A `//nolint` must name its linter and give a reason.
 
+In production code, exported functions come before unexported ones, so a file opens with what it offers; tests keep their helpers first. This is a convention for review, not a lint rule — leave a helper next to its only caller when splitting them would read worse.
+
 ## Coverage
 
-`make cover-gaps` prints the current number and everything short of 100%. One branch is
-knowingly uncovered: the fallback in `middleware.RequestID` for a failing `crypto/rand`.
-Anything else that appears is a genuine gap.
+`make cover-gaps` prints the current number and everything short of 100%. Coverage is at
+100%, so anything that appears is a genuine gap.
 
 `cmd/api` reaches its failure paths through the package-level seams in `main.go` — `exit`,
 `listen`, `newRouter`, `closeDeps` — which tests swap to force an error the real process
-cannot be made to produce. `internal/container` uses the same pattern.
+cannot be made to produce. `internal/container` uses the same pattern, and so does
+`internal/middleware` for `generateID`, since `crypto/rand` cannot be made to fail.
 
 `make cover` and `make cover-gaps` exclude generated code under `oapicodegen/` and pass
 `-coverpkg`, so a module reached through the router is credited rather than reported as

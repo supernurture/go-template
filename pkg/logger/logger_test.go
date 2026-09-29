@@ -301,3 +301,44 @@ func TestCloseWithoutCloser(t *testing.T) {
 		t.Errorf("Close with a nil closer = %v, want nil", err)
 	}
 }
+
+func TestDisableFileLogsToStderrOnly(t *testing.T) {
+	base := t.TempDir()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	stderr := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = stderr })
+
+	console := make(chan string, 1)
+	go func() {
+		out, _ := io.ReadAll(r)
+		console <- string(out)
+	}()
+
+	log, err := New(Config{ServiceName: "go", Path: base, Console: true, DisableFile: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	log.Info("stderr-only", nil)
+	if err := log.Close(); err != nil {
+		t.Errorf("Close with no file: %v", err)
+	}
+	_ = w.Close()
+
+	if out := <-console; !strings.Contains(out, "stderr-only") {
+		t.Errorf("DisableFile must still write to stderr; got %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(base, "go")); !os.IsNotExist(err) {
+		t.Errorf("DisableFile must not create a log directory; stat err = %v", err)
+	}
+}
+
+func TestNewRejectsNoOutput(t *testing.T) {
+	if _, err := New(Config{ServiceName: "go", Path: t.TempDir(), DisableFile: true}); err == nil {
+		t.Error("New = nil error, want a failure when neither the file nor the console is on")
+	}
+}

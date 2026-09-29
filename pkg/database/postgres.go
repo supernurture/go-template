@@ -23,7 +23,7 @@ func NewPostgres(
 	db, err := gormOpen(postgres.Open(
 		fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s %s",
 			pgQuote(host), port, pgQuote(user), pgQuote(password), pgQuote(database), opts),
-	), &gorm.Config{Logger: gormLogger})
+	), gormConfig())
 	if err != nil {
 		return nil, err
 	}

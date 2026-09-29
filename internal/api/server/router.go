@@ -36,7 +36,7 @@ func NewRouter(cfg *config.Config, deps *container.Container) (*gin.Engine, erro
 
 func register(router gin.IRouter, deps *container.Container) {
 	healthcontract.RegisterHandlersWithOptions(router,
-		healthcontract.NewStrictHandlerWithOptions(health.NewHandler(), nil, healthOptions),
+		healthcontract.NewStrictHandlerWithOptions(health.NewHandler(deps.Pings(), deps.Logger), nil, healthOptions),
 		healthcontract.GinServerOptions{ErrorHandler: invalidParam})
 
 	if client, db := deps.Redis["example"], deps.Postgres["example"]; client != nil && db != nil {
@@ -45,6 +45,11 @@ func register(router gin.IRouter, deps *container.Container) {
 		examplecontract.RegisterHandlersWithOptions(router,
 			examplecontract.NewStrictHandlerWithOptions(handler, nil, exampleOptions),
 			examplecontract.GinServerOptions{ErrorHandler: invalidParam})
+	} else {
+		deps.Logger.Warn("module not mounted: a dependency it needs is not configured", map[string]any{
+			"module": "example",
+			"needs":  []string{"redis.example", "databases.postgres.example"},
+		})
 	}
 }
 

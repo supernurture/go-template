@@ -255,3 +255,19 @@ func TestNewRouterRejectsBadTrustedProxy(t *testing.T) {
 		t.Fatal("NewRouter accepted an invalid trusted proxy")
 	}
 }
+
+func TestNewRouterServesReady(t *testing.T) {
+	deps := withRedis(t, newTestDeps(t))
+	router := newTestRouter(t, testConfig(), deps)
+
+	if rec := get(t, router, "/ready"); rec.Code != http.StatusOK ||
+		strings.TrimSpace(rec.Body.String()) != `{"condition":"Ready"}` {
+		t.Fatalf("ready = %d %q, want 200 Ready", rec.Code, rec.Body.String())
+	}
+
+	_ = deps.Redis["example"].Close()
+	if rec := get(t, router, "/ready"); rec.Code != http.StatusServiceUnavailable ||
+		strings.TrimSpace(rec.Body.String()) != `{"condition":"NotReady"}` {
+		t.Fatalf("ready = %d %q, want 503 NotReady", rec.Code, rec.Body.String())
+	}
+}
