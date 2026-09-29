@@ -135,7 +135,7 @@ That same context carries the request ID. Read it with `middleware.RequestIDFrom
 
 ## Requirements
 
-Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the version `.golangci.yml` is written for — the config uses the v1 format, which v2 does not read.
+Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the v2 release `.golangci.yml` is written for.
 
 Beyond the golangci-lint defaults the config turns on `errorlint` (a `%v` where `%w` was meant silently breaks `errors.Is`), `bodyclose`, `sqlclosecheck`, `revive`, and `lll` at 120 columns with tabs counted as four. Generated code under `oapicodegen/` is excluded, since `make oapicodegen` overwrites any fix made there. A `//nolint` must name its linter and give a reason.
 

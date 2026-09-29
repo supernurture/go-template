@@ -8,8 +8,8 @@ APP  ?= $(firstword $(APPS))
 IMAGE ?= go-template
 PORT  ?= 8080
 
-# Pinned: .golangci.yml uses the v1 config format, which v2 does not read.
-GOLANGCI_VERSION ?= 1.64.8
+# Pinned so local and CI agree.
+GOLANGCI_VERSION ?= 2.14.0
 
 .PHONY: help run test cover cover-gaps vet lint lint-install fmt check tidy build build-all clean oapicodegen docker-build docker-run
 
@@ -47,7 +47,7 @@ lint: ## golangci-lint, configured by .golangci.yml (see lint-install)
 	golangci-lint run
 
 lint-install: ## Install the golangci-lint version .golangci.yml is written for
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v$(GOLANGCI_VERSION)
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_VERSION)
 
 fmt: ## Format and fix imports (go install golang.org/x/tools/cmd/goimports@latest)
 	goimports -w .
