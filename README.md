@@ -70,6 +70,8 @@ The `example_notes` table comes from `scripts/schema.sql`, which compose mounts 
 
 One spec per module: every route in `<name>.yaml` is registered in a single call, so a module is mounted whole or not at all.
 
+CI regenerates the contracts and fails if they differ from what is committed. That includes a Dependabot bump of oapi-codegen whose output changes: run `make oapicodegen` on that PR's branch and commit the result.
+
 The generated server does not validate request bodies against the schema. Validate in the service and return a `ValidationError` — `modules/example/service.go` does this.
 
 ## Configuration
