@@ -23,3 +23,29 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+  # Dockerfile base images.
+  - package-ecosystem: docker
+    directory: /
+    target-branch: development
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+  # compose.yaml images.
+  - package-ecosystem: docker-compose
+    directory: /
+    target-branch: development
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    ignore:
+      # 18 moved PGDATA; see compose.yaml.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]

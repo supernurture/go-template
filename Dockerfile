@@ -13,7 +13,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # Staged here because the runtime image has no shell to mkdir a writable log dir.
 RUN mkdir -p /out/logs
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# Dependabot cannot bump the Debian release in the image name; do it by hand.
+FROM gcr.io/distroless/static-debian13:nonroot
 WORKDIR /app
 COPY --from=build /out/app /app/app
 COPY --from=build --chown=65532:65532 /out/logs /app/logs
