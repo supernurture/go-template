@@ -36,7 +36,7 @@ func NewRouter(cfg *config.Config, deps *container.Container) (*gin.Engine, erro
 
 func register(router gin.IRouter, deps *container.Container) {
 	healthcontract.RegisterHandlersWithOptions(router,
-		healthcontract.NewStrictHandlerWithOptions(health.NewHandler(), nil, healthOptions),
+		healthcontract.NewStrictHandlerWithOptions(health.NewHandler(deps.Pings(), deps.Logger), nil, healthOptions),
 		healthcontract.GinServerOptions{ErrorHandler: invalidParam})
 
 	if client, db := deps.Redis["example"], deps.Postgres["example"]; client != nil && db != nil {

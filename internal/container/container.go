@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -58,6 +59,21 @@ func (c *Container) Close() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// Pings returns a check per open connection, keyed "<kind>/<config name>", for a readiness probe.
+func (c *Container) Pings() map[string]func(context.Context) error {
+	checks := make(map[string]func(context.Context) error, len(c.Postgres)+len(c.SQLServer)+len(c.Redis))
+	for name, conn := range c.Postgres {
+		checks["postgres/"+name] = pingGorm(conn)
+	}
+	for name, conn := range c.SQLServer {
+		checks["sql_server/"+name] = pingGorm(conn)
+	}
+	for name, client := range c.Redis {
+		checks["redis/"+name] = func(ctx context.Context) error { return client.Ping(ctx).Err() }
+	}
+	return checks
 }
 
 var (
@@ -129,6 +145,16 @@ func newLogger(cfg *config.Config) (*logger.Logger, error) {
 	}
 
 	return log, nil
+}
+
+func pingGorm(conn *gorm.DB) func(context.Context) error {
+	return func(ctx context.Context) error {
+		sqlDB, err := conn.DB()
+		if err != nil {
+			return err
+		}
+		return sqlDB.PingContext(ctx)
+	}
 }
 
 func closeGorm(conn *gorm.DB) func() error {

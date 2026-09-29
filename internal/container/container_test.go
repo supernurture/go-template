@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -166,5 +167,44 @@ func TestCloseGorm(t *testing.T) {
 
 	if err := closeGorm(&gorm.DB{Config: &gorm.Config{}})(); err == nil {
 		t.Error("expected an error from a connection with no pool")
+	}
+}
+
+func TestPings(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	mock.ExpectPing()
+	up, err := gorm.Open(
+		postgres.New(postgres.Config{Conn: sqlDB, PreferSimpleProtocol: true}),
+		&gorm.Config{DisableAutomaticPing: true},
+	)
+	if err != nil {
+		t.Fatalf("gorm.Open: %v", err)
+	}
+	down := goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:1", MaxRetries: -1})
+	t.Cleanup(func() { _ = down.Close() })
+
+	deps := &Container{
+		Postgres:  map[string]*gorm.DB{"main": up},
+		SQLServer: map[string]*gorm.DB{"legacy": {Config: &gorm.Config{}}},
+		Redis:     map[string]*goredis.Client{"cache": down},
+	}
+
+	checks := deps.Pings()
+	want := map[string]bool{"postgres/main": true, "sql_server/legacy": false, "redis/cache": false}
+	if len(checks) != len(want) {
+		t.Fatalf("checks = %d, want %d", len(checks), len(want))
+	}
+	for name, healthy := range want {
+		check, ok := checks[name]
+		if !ok {
+			t.Fatalf("no check named %q", name)
+		}
+		if err := check(context.Background()); (err == nil) != healthy {
+			t.Errorf("%s: err = %v, want healthy=%v", name, err, healthy)
+		}
 	}
 }

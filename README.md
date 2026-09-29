@@ -17,6 +17,9 @@ The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs edi
 curl localhost:8080/health
 # {"condition":"Healthy"}
 
+curl localhost:8080/ready
+# {"condition":"Ready"}                   <- every database and Redis answered a ping; 503 otherwise
+
 curl localhost:8080/example/visits
 # {"visits":1}                            <- Redis
 
@@ -49,7 +52,7 @@ It is split into four files, the shape to follow for a module that has dependenc
 
 The handler does no validation and holds no client, so the rules are testable without HTTP; the service returns a `ValidationError` for a caller mistake and a wrapped error for anything else, and the handler turns the first into the spec's `400` and lets the second become a `500`. Nothing above `repository.go` sees a `*gorm.DB`.
 
-Take only the layers you need. `modules/health` has no dependencies and no rules, so it is a single `handler.go` — add `service.go` when there is a rule to enforce, `repository.go` when there is a table.
+Take only the layers you need. `modules/health` has no rules and no table of its own, so it is a single `handler.go` — add `service.go` when there is a rule to enforce, `repository.go` when there is a table.
 
 `Repository.Create` writes the note and its audit row through `database.WithTransaction`, so a note can never exist without its event. Reach for that helper whenever two writes have to land together; a single write does not need one, because GORM already wraps it.
 
@@ -111,6 +114,8 @@ Handlers receive what they need through their constructor — they never see the
 Every request passes through `middleware.Default`: request ID, access log, panic recovery, timeout, security headers, CORS, and a body-size limit. `ContextWithFallback` is on, so the `context.Context` a handler receives carries the timeout deadline — pass it to every database, cache, and HTTP call and a stalled dependency cannot outlive the request.
 
 That same context carries the request ID. Read it with `middleware.RequestIDFrom(ctx)` and every line you log lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note.
+
+`/health` is the liveness probe and never touches a dependency; `/ready` pings every database and Redis from `container.Pings` and answers 503 if one is down, logging which. Point a Kubernetes readiness probe at `/ready` and a liveness probe at `/health`, so an outage takes the pod out of rotation instead of restarting it.
 
 ## Make targets
 
