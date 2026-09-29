@@ -208,3 +208,12 @@ func TestPings(t *testing.T) {
 		}
 	}
 }
+
+func TestNewContainerPassesDisableFileToLogger(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Logger.DisableFile = true
+
+	if _, err := NewContainer(cfg); err == nil || !strings.Contains(err.Error(), "no output") {
+		t.Fatalf("error = %v, want the logger to refuse having no output", err)
+	}
+}

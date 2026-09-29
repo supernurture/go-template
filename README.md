@@ -136,6 +136,8 @@ That same context carries the request ID. Read it with `middleware.RequestIDFrom
 
 `docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Point the hosts at `host.docker.internal` (or run the app inside the compose network) when you containerise it.
 
+In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the platform to collect, and nothing is written inside the image.
+
 ## Requirements
 
 Go 1.26.8+, Docker for the local dependencies. `make fmt` needs `goimports`; `make lint` needs golangci-lint, which `make lint-install` pins to the v2 release `.golangci.yml` is written for.

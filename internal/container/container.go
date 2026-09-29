@@ -134,6 +134,7 @@ func newLogger(cfg *config.Config) (*logger.Logger, error) {
 		Path:        cfg.Logger.Path,
 		Level:       cfg.Logger.Level,
 		Console:     cfg.Logger.Console,
+		DisableFile: cfg.Logger.DisableFile,
 		Rotation: logger.RotationOptions{
 			Daily:      cfg.Logger.RotationPattern == "daily",
 			MaxSizeMB:  cfg.Logger.RotationSizeMB,

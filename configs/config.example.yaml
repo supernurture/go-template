@@ -65,3 +65,4 @@ logger:
   rotation_size_mb: 20 # only consulted when rotation_pattern is not daily
   retention_days: 1 # enough for local work; production usually wants weeks
   console: true # also print JSON logs to stderr
+  disable_file: false # true logs to stderr only; needs console

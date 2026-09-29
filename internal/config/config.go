@@ -105,7 +105,8 @@ type Logger struct {
 	RotationPattern string `mapstructure:"rotation_pattern" validate:"omitempty,oneof=daily size"`
 	RotationSizeMB  int    `mapstructure:"rotation_size_mb" validate:"gte=0"`
 	RetentionDays   int    `mapstructure:"retention_days"   validate:"gte=0"`
-	Console         bool   `mapstructure:"console"`
+	Console         bool   `mapstructure:"console"          validate:"required_if=DisableFile true"`
+	DisableFile     bool   `mapstructure:"disable_file"`
 }
 
 const (
