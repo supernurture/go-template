@@ -44,7 +44,12 @@ func TestNewSQLServer(t *testing.T) {
 	mock.ExpectPing()
 
 	orig := gormOpen
-	gormOpen = func(gorm.Dialector, ...gorm.Option) (*gorm.DB, error) { return db, nil }
+	gormOpen = func(_ gorm.Dialector, opts ...gorm.Option) (*gorm.DB, error) {
+		if cfg, ok := opts[0].(*gorm.Config); !ok || !cfg.DisableAutomaticPing {
+			t.Error("gorm must not ping on open: its ping has no deadline, ours does")
+		}
+		return db, nil
+	}
 	t.Cleanup(func() { gormOpen = orig })
 
 	got, err := NewSQLServer(

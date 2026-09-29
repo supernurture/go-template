@@ -82,8 +82,12 @@ func TestPing(t *testing.T) {
 
 	wantErr := errors.New("boom")
 	mock.ExpectPing().WillReturnError(wantErr)
+	mock.ExpectClose()
 	if err := ping(db); !errors.Is(err, wantErr) {
 		t.Errorf("ping error = %v, want %v", err, wantErr)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("a failed ping must close the pool: %v", err)
 	}
 
 	if err := ping(brokenDB()); err == nil {

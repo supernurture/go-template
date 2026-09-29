@@ -20,6 +20,10 @@ var gormLogger = logger.New(
 	},
 )
 
+func gormConfig() *gorm.Config {
+	return &gorm.Config{Logger: gormLogger, DisableAutomaticPing: true}
+}
+
 // PoolConfig holds connection-pool settings; a zero value keeps the driver default.
 type PoolConfig struct {
 	MaxOpenConns    int
@@ -53,7 +57,11 @@ func ping(db *gorm.DB) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return sqlDB.PingContext(ctx)
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
+		return err
+	}
+	return nil
 }
 
 func hasTLS(opts string, secureVals ...string) bool {
