@@ -150,13 +150,13 @@ In production code, exported functions come before unexported ones, so a file op
 
 ## Coverage
 
-`make cover-gaps` prints the current number and everything short of 100%. One branch is
-knowingly uncovered: the fallback in `middleware.RequestID` for a failing `crypto/rand`.
-Anything else that appears is a genuine gap.
+`make cover-gaps` prints the current number and everything short of 100%. Coverage is at
+100%, so anything that appears is a genuine gap.
 
 `cmd/api` reaches its failure paths through the package-level seams in `main.go` — `exit`,
 `listen`, `newRouter`, `closeDeps` — which tests swap to force an error the real process
-cannot be made to produce. `internal/container` uses the same pattern.
+cannot be made to produce. `internal/container` uses the same pattern, and so does
+`internal/middleware` for `generateID`, since `crypto/rand` cannot be made to fail.
 
 `make cover` and `make cover-gaps` exclude generated code under `oapicodegen/` and pass
 `-coverpkg`, so a module reached through the router is credited rather than reported as

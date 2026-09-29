@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -283,4 +284,23 @@ func TestDefaultChainUnset(t *testing.T) {
 			t.Errorf("status = %d, want 413 past the %d byte default", recorder.Code, defaultMaxBodyBytes)
 		}
 	})
+}
+
+func TestRequestIDFallsBackWhenGenerationFails(t *testing.T) {
+	orig := generateID
+	generateID = func(int) (string, error) { return "", errors.New("entropy unavailable") }
+	t.Cleanup(func() { generateID = orig })
+
+	router := gin.New()
+	router.Use(RequestID())
+	var seen string
+	router.GET("/reqID", func(c *gin.Context) { seen = RequestIDFrom(c.Request.Context()) })
+	reqID := do(router, httptest.NewRequest(http.MethodGet, "/reqID", nil)).Header().Get(requestIDHeader)
+
+	if _, err := strconv.ParseInt(reqID, 16, 64); err != nil {
+		t.Errorf("fallback reqID = %q, want the hex timestamp", reqID)
+	}
+	if seen != reqID {
+		t.Errorf("reqID seen by the handler = %q, want the echoed %q", seen, reqID)
+	}
 }

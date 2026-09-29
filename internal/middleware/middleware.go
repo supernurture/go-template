@@ -27,6 +27,8 @@ const (
 
 type reqIDContextKey struct{}
 
+var generateID = util.GenerateUniqueID
+
 // Default returns the standard chain in execution order; mount with router.Use(Default(cfg, log)...).
 func Default(cfg *config.Config, log *logger.Logger) []gin.HandlerFunc {
 	var maxBody int64 = defaultMaxBodyBytes
@@ -50,7 +52,7 @@ func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqID := c.GetHeader(requestIDHeader)
 		if !validRequestID(reqID) {
-			uniqueID, err := util.GenerateUniqueID(requestIDLength)
+			uniqueID, err := generateID(requestIDLength)
 			if err != nil {
 				uniqueID = fmt.Sprintf("%x", time.Now().UnixNano())
 			}
