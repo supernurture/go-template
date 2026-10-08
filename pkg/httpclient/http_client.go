@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -64,7 +66,11 @@ func New(opts ...Option) *Client {
 
 // Do sends a raw request. body may be nil. The caller owns closing the response body.
 func (c *Client) Do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, joinURL(c.baseURL, path), body)
+	target, err := joinURL(c.baseURL, path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +95,11 @@ func (c *Client) PostJSON(ctx context.Context, path string, in, out any) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, joinURL(c.baseURL, path), bytes.NewReader(payload))
+	target, err := joinURL(c.baseURL, path)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -121,10 +131,21 @@ func decode(resp *http.Response, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func joinURL(baseURL, path string) string {
+// joinURL appends path to baseURL, keeping path's query string. The fragment is dropped (it is never
+// sent), and a ".." segment is refused: url.JoinPath would resolve it and climb out of the base path.
+func joinURL(baseURL, path string) (string, error) {
+	path, _, _ = strings.Cut(path, "#")
+	path, query, hasQuery := strings.Cut(path, "?")
+	if slices.Contains(strings.Split(path, "/"), "..") {
+		return "", fmt.Errorf("httpclient: path %q must not contain \"..\"", path)
+	}
+
 	joined, err := url.JoinPath(baseURL, path)
 	if err != nil {
-		return baseURL + path
+		return "", fmt.Errorf("httpclient: join %q and %q: %w", baseURL, path, err)
 	}
-	return joined
+	if hasQuery {
+		joined += "?" + query
+	}
+	return joined, nil
 }

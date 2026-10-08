@@ -1,9 +1,13 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,14 +34,29 @@ func testConfig() *config.Config {
 }
 
 func newTestDeps(t *testing.T) *container.Container {
+	deps, _ := newLoggedDeps(t)
+	return deps
+}
+
+// newLoggedDeps returns deps whose logger can be flushed and read back.
+func newLoggedDeps(t *testing.T) (*container.Container, func() string) {
 	t.Helper()
-	log, err := logger.New(logger.Config{ServiceName: "test", Path: t.TempDir()})
+	dir := t.TempDir()
+	log, err := logger.New(logger.Config{ServiceName: "test", Path: dir})
 	if err != nil {
 		t.Fatalf("logger.New: %v", err)
 	}
 	t.Cleanup(func() { _ = log.Close() })
 
-	return &container.Container{Logger: log}
+	return &container.Container{Logger: log}, func() string {
+		_ = log.Close()
+		files, _ := filepath.Glob(filepath.Join(dir, "test", "*.log"))
+		if len(files) == 0 {
+			return ""
+		}
+		written, _ := os.ReadFile(files[0])
+		return string(written)
+	}
 }
 
 func withRedis(t *testing.T, deps *container.Container) *container.Container {
@@ -77,6 +96,11 @@ func withPostgres(t *testing.T, deps *container.Container) (*container.Container
 	return deps, mock
 }
 
+func fullDeps(t *testing.T) (*container.Container, sqlmock.Sqlmock) {
+	t.Helper()
+	return withPostgres(t, withRedis(t, newTestDeps(t)))
+}
+
 func newTestRouter(t *testing.T, cfg *config.Config, deps *container.Container) *gin.Engine {
 	t.Helper()
 	router, err := NewRouter(cfg, deps)
@@ -93,181 +117,213 @@ func get(t *testing.T, router *gin.Engine, path string) *httptest.ResponseRecord
 	return rec
 }
 
-func TestNewRouterServesHealth(t *testing.T) {
-	rec := get(t, newTestRouter(t, testConfig(), newTestDeps(t)), "/health")
+func postNote(t *testing.T, cfg *config.Config, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	deps, _ := fullDeps(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/example/notes", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	newTestRouter(t, cfg, deps).ServeHTTP(rec, req)
+	return rec
+}
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+func wantResponse(t *testing.T, rec *httptest.ResponseRecorder, status int, bodyPrefix string) {
+	t.Helper()
+	if rec.Code != status {
+		t.Errorf("status = %d, want %d", rec.Code, status)
 	}
-	if got, want := rec.Body.String(), `{"condition":"Healthy"}`; got != want+"\n" && got != want {
-		t.Errorf("body = %q, want %q", got, want)
-	}
-	if rec.Header().Get("X-Request-ID") == "" {
-		t.Error("X-Request-ID header missing, middleware chain did not run")
+	if got := strings.TrimSpace(rec.Body.String()); !strings.HasPrefix(got, bodyPrefix) {
+		t.Errorf("body = %q, want it to start with %q", got, bodyPrefix)
 	}
 }
 
-func TestNewRouterServesExample(t *testing.T) {
-	deps, mock := withPostgres(t, withRedis(t, newTestDeps(t)))
-	router := newTestRouter(t, testConfig(), deps)
+// testContext returns a gin context over a recorder, for calling the error handlers directly.
+func testContext(ctx context.Context) (*gin.Context, *httptest.ResponseRecorder) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	return c, rec
+}
 
-	t.Run("visits counter comes from redis", func(t *testing.T) {
-		for _, want := range []string{`{"visits":1}`, `{"visits":2}`} {
-			rec := get(t, router, "/example/visits")
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-			}
-			if got := rec.Body.String(); got != want+"\n" && got != want {
-				t.Errorf("body = %q, want %q", got, want)
-			}
+func TestNewRouter(t *testing.T) {
+	t.Run("positive: serves health through the middleware chain", func(t *testing.T) {
+		rec := get(t, newTestRouter(t, testConfig(), newTestDeps(t)), "/health")
+		wantResponse(t, rec, http.StatusOK, `{"condition":"Healthy"}`)
+		if rec.Header().Get("X-Request-ID") == "" {
+			t.Error("X-Request-ID header missing, middleware chain did not run")
 		}
 	})
 
-	t.Run("notes come from postgres", func(t *testing.T) {
+	t.Run("negative: an invalid trusted proxy", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Server.TrustedProxies = []string{"not-an-ip"}
+		if _, err := NewRouter(cfg, newTestDeps(t)); err == nil {
+			t.Fatal("NewRouter accepted an invalid trusted proxy")
+		}
+	})
+
+	// gin.SetMode panics instead of returning an error; config.Load is the only guard.
+	t.Run("negative: an unknown gin mode panics", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.Server.Mode = "bogus"
+		defer func() {
+			if recover() == nil {
+				t.Error("NewRouter with an unknown mode did not panic")
+			}
+			gin.SetMode(gin.TestMode)
+		}()
+		_, _ = NewRouter(cfg, newTestDeps(t))
+	})
+}
+
+func TestRegister(t *testing.T) {
+	t.Run("positive: mounts health, readiness and the example module", func(t *testing.T) {
+		deps, mock := fullDeps(t)
+		router := newTestRouter(t, testConfig(), deps)
+
+		for _, want := range []string{`{"visits":1}`, `{"visits":2}`} {
+			wantResponse(t, get(t, router, "/example/visits"), http.StatusOK, want)
+		}
+
 		created := time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC)
 		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).
 			WillReturnRows(sqlmock.NewRows([]string{"id", "title", "body", "created_at"}).
 				AddRow(int64(1), "First note", "the body", created))
+		if rec := get(t, router, "/example/notes"); rec.Code != http.StatusOK ||
+			!strings.Contains(rec.Body.String(), `"title":"First note"`) {
+			t.Errorf("notes = %d %q, want the stored note", rec.Code, rec.Body.String())
+		}
+		wantResponse(t, get(t, router, "/ready"), http.StatusOK, `{"condition":"Ready"}`)
+	})
 
-		rec := get(t, router, "/example/notes")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	t.Run("negative: the example module is skipped and logged without every dependency", func(t *testing.T) {
+		setups := map[string]func(*testing.T, *container.Container){
+			"nothing configured": func(*testing.T, *container.Container) {},
+			"only redis":         func(t *testing.T, deps *container.Container) { withRedis(t, deps) },
+			"only postgres":      func(t *testing.T, deps *container.Container) { withPostgres(t, deps) },
 		}
-		if got := rec.Body.String(); !strings.Contains(got, `"title":"First note"`) {
-			t.Errorf("body = %q, want the stored note", got)
-		}
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Error(err)
+		for name, setup := range setups {
+			t.Run(name, func(t *testing.T) {
+				deps, logged := newLoggedDeps(t)
+				setup(t, deps)
+				router := newTestRouter(t, testConfig(), deps)
+				for _, path := range []string{"/example/visits", "/example/notes"} {
+					if rec := get(t, router, path); rec.Code != http.StatusNotFound {
+						t.Errorf("%s: status = %d, want 404", path, rec.Code)
+					}
+				}
+				if !strings.Contains(logged(), "module not mounted") {
+					t.Error("skipping the module was not logged")
+				}
+			})
 		}
 	})
 
-	t.Run("handler error stays out of the response body", func(t *testing.T) {
-		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).
-			WillReturnError(errors.New("pq: secret internal detail"))
+	t.Run("negative: readiness turns 503 when a dependency goes down", func(t *testing.T) {
+		deps := withRedis(t, newTestDeps(t))
+		router := newTestRouter(t, testConfig(), deps)
+		_ = deps.Redis["example"].Close()
+		wantResponse(t, get(t, router, "/ready"), http.StatusServiceUnavailable, `{"condition":"NotReady"}`)
+	})
+}
 
-		rec := get(t, router, "/example/notes")
-		if rec.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+func TestInvalidParam(t *testing.T) {
+	t.Run("positive: answers with the given status and records the cause", func(t *testing.T) {
+		c, rec := testContext(context.Background())
+		invalidParam(c, errors.New("Invalid format for parameter limit"), http.StatusBadRequest)
+		wantResponse(t, rec, http.StatusBadRequest, `{"message":"Invalid format for parameter limit"}`)
+		if len(c.Errors) != 1 {
+			t.Errorf("c.Errors = %v, want the cause recorded for AccessLog", c.Errors)
 		}
-		if got, want := rec.Body.String(), `{"message":"internal server error"}`; got != want {
-			t.Errorf("body = %q, want %q", got, want)
+	})
+
+	t.Run("negative: an unparsable query parameter through the router", func(t *testing.T) {
+		deps, _ := fullDeps(t)
+		rec := get(t, newTestRouter(t, testConfig(), deps), "/example/notes?limit=abc")
+		wantResponse(t, rec, http.StatusBadRequest, `{"message":"Invalid format for parameter limit: `)
+	})
+
+	t.Run("negative: the error text reaches the client unfiltered", func(t *testing.T) {
+		c, rec := testContext(context.Background())
+		invalidParam(c, errors.New("pq: secret internal detail"), http.StatusBadRequest)
+		if !strings.Contains(rec.Body.String(), "secret internal detail") {
+			t.Errorf("body = %q; update this test now that invalidParam filters its message", rec.Body.String())
 		}
 	})
 }
 
-// The generated handlers sit behind the middleware chain, which must still get to answer.
-func TestNewRouterLetsMiddlewareAnswerHandlerErrors(t *testing.T) {
-	t.Run("timeout is 504", func(t *testing.T) {
-		deps, mock := withPostgres(t, withRedis(t, newTestDeps(t)))
+func TestBadRequest(t *testing.T) {
+	t.Run("positive: a decode error is a 400 carrying the decoder message", func(t *testing.T) {
+		wantResponse(t, postNote(t, testConfig(), `{"title":`), http.StatusBadRequest, `{"message":"unexpected EOF"}`)
+	})
+
+	t.Run("negative: an empty or oversized body", func(t *testing.T) {
+		wantResponse(t, postNote(t, testConfig(), ""), http.StatusBadRequest, `{"message":"a JSON body is required"}`)
+
+		cfg := testConfig()
+		cfg.Server.MaxBodyBytes = 16
+		wantResponse(t, postNote(t, cfg, `{"title":"`+strings.Repeat("x", 64)+`"}`),
+			http.StatusRequestEntityTooLarge, `{"message":"request body too large"}`)
+
+		c, rec := testContext(context.Background())
+		badRequest(c, io.EOF)
+		wantResponse(t, rec, http.StatusBadRequest, `{"message":"a JSON body is required"}`)
+	})
+
+	// The decoder's message names Go types, which says more about the server than the caller needs.
+	t.Run("negative: a wrongly typed field leaks Go type names", func(t *testing.T) {
+		rec := postNote(t, testConfig(), `{"title":5}`)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Go struct field") {
+			t.Errorf("response = %d %q, want a 400 quoting the Go decoder", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestInternalError(t *testing.T) {
+	const generic = `{"message":"internal server error"}`
+
+	t.Run("positive: a generic 500 with the cause kept for the log", func(t *testing.T) {
+		c, rec := testContext(context.Background())
+		internalError(c, errors.New("pq: secret internal detail"))
+		wantResponse(t, rec, http.StatusInternalServerError, generic)
+		if len(c.Errors) != 1 || strings.Contains(rec.Body.String(), "secret") {
+			t.Errorf("errors = %v, body = %q; want the cause logged, not sent", c.Errors, rec.Body.String())
+		}
+
+		deps, mock := fullDeps(t)
+		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).WillReturnError(errors.New("pq: secret internal detail"))
+		rec = get(t, newTestRouter(t, testConfig(), deps), "/example/notes")
+		if got := rec.Body.String(); rec.Code != http.StatusInternalServerError || got != generic {
+			t.Errorf("response = %d %q, want the generic 500", rec.Code, got)
+		}
+	})
+
+	t.Run("negative: a response already started gets no second body", func(t *testing.T) {
+		c, rec := testContext(context.Background())
+		c.String(http.StatusOK, "partial")
+		internalError(c, errors.New("write failed"))
+		if got := rec.Body.String(); got != "partial" {
+			t.Errorf("body = %q, want only the partial response", got)
+		}
+	})
+
+	t.Run("negative: past the deadline it leaves the answer to Timeout", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		c, rec := testContext(ctx)
+		internalError(c, context.Canceled)
+		if rec.Body.Len() != 0 {
+			t.Errorf("body = %q, want none", rec.Body.String())
+		}
+
+		deps, mock := fullDeps(t)
 		cfg := testConfig()
 		cfg.Server.Timeout = 50 * time.Millisecond
 		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).
 			WillDelayFor(time.Second).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}))
-
 		if rec := get(t, newTestRouter(t, cfg, deps), "/example/notes"); rec.Code != http.StatusGatewayTimeout {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusGatewayTimeout)
+			t.Errorf("status = %d, want 504", rec.Code)
 		}
 	})
-
-	post := func(t *testing.T, cfg *config.Config, body string) *httptest.ResponseRecorder {
-		t.Helper()
-		deps, _ := withPostgres(t, withRedis(t, newTestDeps(t)))
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/example/notes", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		newTestRouter(t, cfg, deps).ServeHTTP(rec, req)
-		return rec
-	}
-
-	t.Run("oversized body is 413", func(t *testing.T) {
-		cfg := testConfig()
-		cfg.Server.MaxBodyBytes = 16
-		rec := post(t, cfg, `{"title":"`+strings.Repeat("x", 64)+`"}`)
-		if rec.Code != http.StatusRequestEntityTooLarge {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
-		}
-	})
-
-	// Every 400 uses the spec's Error shape, whichever generated layer rejected the request.
-	badRequests := map[string]struct {
-		rec  func(t *testing.T) *httptest.ResponseRecorder
-		want string
-	}{
-		"empty body": {
-			rec:  func(t *testing.T) *httptest.ResponseRecorder { return post(t, testConfig(), "") },
-			want: `{"message":"a JSON body is required"}`,
-		},
-		"undecodable body": {
-			rec:  func(t *testing.T) *httptest.ResponseRecorder { return post(t, testConfig(), `{"title":`) },
-			want: `{"message":"unexpected EOF"}`,
-		},
-		"unparsable query parameter": {
-			rec: func(t *testing.T) *httptest.ResponseRecorder {
-				deps, _ := withPostgres(t, withRedis(t, newTestDeps(t)))
-				return get(t, newTestRouter(t, testConfig(), deps), "/example/notes?limit=abc")
-			},
-			want: `{"message":"Invalid format for parameter limit: `,
-		},
-	}
-	for name, tc := range badRequests {
-		t.Run(name+" is 400 with a message", func(t *testing.T) {
-			rec := tc.rec(t)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-			}
-			if got := rec.Body.String(); !strings.HasPrefix(got, tc.want) {
-				t.Errorf("body = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestNewRouterSkipsExampleWithoutEveryDependency(t *testing.T) {
-	paths := []string{"/example/visits", "/example/notes"}
-
-	setups := map[string]func(t *testing.T) *container.Container{
-		"nothing configured": func(t *testing.T) *container.Container { return newTestDeps(t) },
-		"only redis":         func(t *testing.T) *container.Container { return withRedis(t, newTestDeps(t)) },
-		"only postgres": func(t *testing.T) *container.Container {
-			deps, _ := withPostgres(t, newTestDeps(t))
-			return deps
-		},
-	}
-
-	for name, setup := range setups {
-		t.Run(name, func(t *testing.T) {
-			router := newTestRouter(t, testConfig(), setup(t))
-			for _, path := range paths {
-				if rec := get(t, router, path); rec.Code != http.StatusNotFound {
-					t.Errorf("%s: status = %d, want %d", path, rec.Code, http.StatusNotFound)
-				}
-			}
-		})
-	}
-}
-
-func TestNewRouterRejectsBadTrustedProxy(t *testing.T) {
-	cfg := testConfig()
-	cfg.Server.TrustedProxies = []string{"not-an-ip"}
-
-	if _, err := NewRouter(cfg, newTestDeps(t)); err == nil {
-		t.Fatal("NewRouter accepted an invalid trusted proxy")
-	}
-}
-
-func TestNewRouterServesReady(t *testing.T) {
-	deps := withRedis(t, newTestDeps(t))
-	router := newTestRouter(t, testConfig(), deps)
-
-	if rec := get(t, router, "/ready"); rec.Code != http.StatusOK ||
-		strings.TrimSpace(rec.Body.String()) != `{"condition":"Ready"}` {
-		t.Fatalf("ready = %d %q, want 200 Ready", rec.Code, rec.Body.String())
-	}
-
-	_ = deps.Redis["example"].Close()
-	if rec := get(t, router, "/ready"); rec.Code != http.StatusServiceUnavailable ||
-		strings.TrimSpace(rec.Body.String()) != `{"condition":"NotReady"}` {
-		t.Fatalf("ready = %d %q, want 503 NotReady", rec.Code, rec.Body.String())
-	}
 }

@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	healthcontract "github.com/supernurture/go-template/internal/api/server/oapicodegen/health"
@@ -44,7 +45,16 @@ func (h *Handler) GetReady(
 		go func() {
 			checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 			defer cancel()
-			results <- result{name: name, err: check(checkCtx)}
+
+			res := result{name: name}
+			// Recovery cannot reach this goroutine, so an unrecovered panic here would kill the process.
+			defer func() {
+				if p := recover(); p != nil {
+					res.err = fmt.Errorf("check panicked: %v", p)
+				}
+				results <- res
+			}()
+			res.err = check(checkCtx)
 		}()
 	}
 

@@ -51,12 +51,13 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	return deps, nil
 }
 
-// Close unwinds every hook in reverse, continuing past failures.
+// Close unwinds every hook in reverse, continuing past failures. Calling it again is a no-op.
 func (c *Container) Close() error {
 	var errs []error
 	for x := len(c.shutdowns) - 1; x >= 0; x-- {
 		errs = append(errs, c.shutdowns[x]())
 	}
+	c.shutdowns = nil
 
 	return errors.Join(errs...)
 }
