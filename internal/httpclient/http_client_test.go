@@ -55,89 +55,115 @@ func testConfig(baseURL string) *config.Config {
 	return cfg
 }
 
-func TestNewHTTPClientBuildsEveryUpstream(t *testing.T) {
-	log, _ := newTestLogger(t)
-
-	clients := NewHTTPClient(testConfig("https://api.example.com"), log)
-
-	if clients.Example == nil {
-		t.Error("Example client was not built")
-	}
+func mustPanic(t *testing.T, what string, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Errorf("%s did not panic", what)
+		}
+	}()
+	fn()
 }
 
-func TestWarnsWhenBaseURLIsNotHTTPS(t *testing.T) {
-	tests := map[string]struct {
-		baseURL  string
-		wantWarn bool
-	}{
-		"plaintext":    {"http://api.example.com", true},
-		"no scheme":    {"api.example.com", true},
-		"tls":          {"https://api.example.com", false},
-		"tls any case": {"HTTPS://api.example.com", false},
-		// Nothing is configured, so there are no credentials to send in cleartext.
-		"unconfigured": {"", false},
+// authSeen sends one request through a client built from auth and returns the Authorization values received.
+func authSeen(t *testing.T, auth config.ServiceAuth) []string {
+	t.Helper()
+	var got []string
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = r.Header["Authorization"]
+	}))
+	defer server.Close()
+
+	log, _ := newTestLogger(t)
+	cfg := testConfig(server.URL)
+	service := cfg.Services["example"]
+	service.Auth = auth
+	cfg.Services["example"] = service
+
+	resp, err := newExampleClient(cfg, log).Do(context.Background(), http.MethodGet, "/x", nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = resp.Body.Close()
+	return got
+}
+
+func TestNewHTTPClient(t *testing.T) {
+	t.Run("positive: builds every upstream", func(t *testing.T) {
+		log, _ := newTestLogger(t)
+		if clients := NewHTTPClient(testConfig("https://api.example.com"), log); clients.Example == nil {
+			t.Error("Example client was not built")
+		}
+	})
+
+	t.Run("negative: an empty config still builds every upstream", func(t *testing.T) {
+		log, _ := newTestLogger(t)
+		if clients := NewHTTPClient(&config.Config{}, log); clients.Example == nil {
+			t.Error("Example client was not built from an empty config")
+		}
+	})
+
+	t.Run("negative: a nil config panics", func(t *testing.T) {
+		log, _ := newTestLogger(t)
+		mustPanic(t, "NewHTTPClient(nil, log)", func() { NewHTTPClient(nil, log) })
+	})
+}
+
+func TestWarnIfNotHTTPS(t *testing.T) {
+	warned := func(t *testing.T, baseURL string) bool {
+		t.Helper()
+		log, logged := newTestLogger(t)
+		warnIfNotHTTPS(log, "Example", baseURL)
+		return strings.Contains(logged(), "not HTTPS")
 	}
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			log, logged := newTestLogger(t)
-
-			NewHTTPClient(testConfig(tc.baseURL), log)
-
-			warned := strings.Contains(logged(), "not HTTPS")
-			if warned != tc.wantWarn {
-				t.Errorf("warned = %v, want %v for %q", warned, tc.wantWarn, tc.baseURL)
+	// Nothing configured means no credentials to send in cleartext.
+	t.Run("positive: TLS or unconfigured URLs stay quiet", func(t *testing.T) {
+		for _, baseURL := range []string{"https://api.example.com", "HTTPS://api.example.com", ""} {
+			if warned(t, baseURL) {
+				t.Errorf("warned for %q, want quiet", baseURL)
 			}
-		})
-	}
-}
+		}
+	})
 
-func TestNewHTTPClientWithoutServiceConfig(t *testing.T) {
-	log, _ := newTestLogger(t)
+	t.Run("negative: plaintext or schemeless URLs warn", func(t *testing.T) {
+		for _, baseURL := range []string{"http://api.example.com", "api.example.com", " https://api.example.com"} {
+			if !warned(t, baseURL) {
+				t.Errorf("no warning for %q", baseURL)
+			}
+		}
+	})
 
-	if clients := NewHTTPClient(&config.Config{}, log); clients.Example == nil {
-		t.Error("Example client was not built from an empty config")
-	}
+	t.Run("negative: a nil logger panics only when it has to warn", func(t *testing.T) {
+		warnIfNotHTTPS(nil, "Example", "https://api.example.com")
+		mustPanic(t, "warnIfNotHTTPS(nil, http://...)", func() { warnIfNotHTTPS(nil, "Example", "http://x") })
+	})
 }
 
 // An empty Authorization header is worse than none: some upstreams reject the malformed
 // value, and it says the request is authenticated when nothing was configured.
-func TestAuthorizationIsSentOnlyWhenConfigured(t *testing.T) {
-	tests := map[string]struct {
-		auth     config.ServiceAuth
-		wantAuth string
-	}{
-		"no credentials":  {config.ServiceAuth{}, ""},
-		"password only":   {config.ServiceAuth{Password: "password"}, ""},
-		"full credential": {config.ServiceAuth{User: "user", Password: "password"}, "Basic dXNlcjpwYXNzd29yZA=="},
-	}
+func TestNewExampleClient(t *testing.T) {
+	t.Run("positive: sends basic auth to the configured base URL", func(t *testing.T) {
+		got := authSeen(t, config.ServiceAuth{User: "user", Password: "password"})
+		if len(got) != 1 || got[0] != "Basic dXNlcjpwYXNzd29yZA==" {
+			t.Errorf("Authorization = %q, want the basic-auth value", got)
+		}
+	})
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			var got []string
-			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-				got = r.Header["Authorization"]
-			}))
-			defer server.Close()
-
-			log, _ := newTestLogger(t)
-			cfg := testConfig(server.URL)
-			service := cfg.Services["example"]
-			service.Auth = tc.auth
-			cfg.Services["example"] = service
-
-			resp, err := NewHTTPClient(cfg, log).Example.Do(context.Background(), http.MethodGet, "/x", nil)
-			if err != nil {
-				t.Fatalf("Do: %v", err)
+	t.Run("negative: partial or missing credentials send no header", func(t *testing.T) {
+		for _, auth := range []config.ServiceAuth{{}, {Password: "password"}, {User: "user"}} {
+			if got := authSeen(t, auth); len(got) != 0 {
+				t.Errorf("auth %+v: Authorization = %q, want the header absent", auth, got)
 			}
-			_ = resp.Body.Close()
+		}
+	})
 
-			if tc.wantAuth == "" && len(got) != 0 {
-				t.Errorf("Authorization = %q, want the header absent", got)
-			}
-			if tc.wantAuth != "" && (len(got) != 1 || got[0] != tc.wantAuth) {
-				t.Errorf("Authorization = %q, want %q", got, tc.wantAuth)
-			}
-		})
-	}
+	// A missing service is only noticed on the first request, not at startup.
+	t.Run("negative: an unconfigured service fails on use", func(t *testing.T) {
+		log, _ := newTestLogger(t)
+		client := newExampleClient(&config.Config{}, log)
+		if _, err := client.Do(context.Background(), http.MethodGet, "/x", nil); err == nil {
+			t.Error("Do = nil error, want a failure for a client with no base URL")
+		}
+	})
 }
