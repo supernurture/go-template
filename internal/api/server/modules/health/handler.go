@@ -62,8 +62,7 @@ func (h *Handler) GetReady(
 	for range h.checks {
 		if res := <-results; res.err != nil {
 			ready = false
-			h.log.Warn("readiness check failed", map[string]any{
-				"request_id": middleware.RequestIDFrom(ctx),
+			h.log.WarnCtx(ctx, "readiness check failed", map[string]any{
 				"dependency": res.name,
 				"error":      res.err.Error(),
 			})

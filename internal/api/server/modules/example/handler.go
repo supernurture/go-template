@@ -82,10 +82,7 @@ func (h *Handler) CreateExampleNote(
 		return nil, err
 	}
 
-	h.log.Info("note created", map[string]any{
-		"request_id": middleware.RequestIDFrom(ctx),
-		"note_id":    note.ID,
-	})
+	h.log.InfoCtx(ctx, "note created", map[string]any{"note_id": note.ID})
 
 	return examplecontract.CreateExampleNote201JSONResponse(toContract(note)), nil
 }
