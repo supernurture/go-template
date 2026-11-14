@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,6 +148,39 @@ func TestCreateExampleNote(t *testing.T) {
 		created, ok := response.(examplecontract.CreateExampleNote201JSONResponse)
 		if !ok || created.Id != 3 || created.Title != "First note" || created.Body != "the body" {
 			t.Errorf("response = %#v, want a 201 with the stored values", response)
+		}
+	})
+
+	t.Run("positive: the note-created line carries what the request context holds", func(t *testing.T) {
+		type key struct{}
+		dir := t.TempDir()
+		log, err := logger.New(logger.Config{
+			ServiceName: "test", Path: dir,
+			ContextFields: []logger.ContextFields{func(ctx context.Context) map[string]any {
+				return map[string]any{"request_id": ctx.Value(key{})}
+			}},
+		})
+		if err != nil {
+			t.Fatalf("logger.New: %v", err)
+		}
+		repo, mock := mockRepository(t)
+		expectInsert(mock, 3)
+
+		ctx := context.WithValue(context.Background(), key{}, "req-7")
+		handler := NewHandler(NewService(nil, repo), log)
+		if _, err := handler.CreateExampleNote(ctx, createRequest("x", nil)); err != nil {
+			t.Fatalf("CreateExampleNote: %v", err)
+		}
+		_ = log.Close()
+
+		files, _ := filepath.Glob(filepath.Join(dir, "test", "app-*.log"))
+		if len(files) != 1 {
+			t.Fatalf("log files = %v, want one", files)
+		}
+		written, _ := os.ReadFile(files[0])
+		if line := string(written); !strings.Contains(line, `"message":"note created"`) ||
+			!strings.Contains(line, `"request_id":"req-7"`) || !strings.Contains(line, `"note_id":3`) {
+			t.Errorf("log = %s, want note created with request_id req-7 and note_id 3", line)
 		}
 	})
 

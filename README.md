@@ -117,7 +117,7 @@ Handlers receive what they need through their constructor — they never see the
 
 Every request passes through `middleware.Default`: request ID, access log, panic recovery, timeout, security headers, CORS, and a body-size limit. `ContextWithFallback` is on, so the `context.Context` a handler receives carries the timeout deadline — pass it to every database, cache, and HTTP call and a stalled dependency cannot outlive the request.
 
-That same context carries the request ID. Read it with `middleware.RequestIDFrom(ctx)` and every line you log lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note.
+That same context carries the request ID. Log with the `*Ctx` methods — `log.InfoCtx(ctx, "note created", fields)` — and the line gets `request_id` without the handler copying it, so it lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note. The logger gets the ID from the `middleware.LogFields` hook that `container.newLogger` installs through `logger.Config.ContextFields`; a key you pass in `fields` wins over the hook's. Use the plain `Info`/`Warn` methods only for lines outside a request, such as startup. `middleware.RequestIDFrom(ctx)` still returns the ID when you need it for something other than a log line.
 
 `/health` is the liveness probe and never touches a dependency; `/ready` pings every database and Redis from `container.Pings` and answers 503 if one is down, logging which. The checks run concurrently, each capped at 2s, so give the probe a `timeoutSeconds` of 3 or more. Point a Kubernetes readiness probe at `/ready` and a liveness probe at `/health`, so an outage takes the pod out of rotation instead of restarting it.
 

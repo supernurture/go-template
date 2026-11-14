@@ -10,6 +10,7 @@ import (
 
 	"github.com/supernurture/go-template/internal/config"
 	"github.com/supernurture/go-template/internal/httpclient"
+	"github.com/supernurture/go-template/internal/middleware"
 	"github.com/supernurture/go-template/pkg/database"
 	"github.com/supernurture/go-template/pkg/logger"
 	"github.com/supernurture/go-template/pkg/redis"
@@ -141,6 +142,7 @@ func newLogger(cfg *config.Config) (*logger.Logger, error) {
 			MaxSizeMB:  cfg.Logger.RotationSizeMB,
 			MaxAgeDays: cfg.Logger.RetentionDays,
 		},
+		ContextFields: []logger.ContextFields{middleware.LogFields},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build logger: %w", err)

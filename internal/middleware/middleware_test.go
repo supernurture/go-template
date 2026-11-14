@@ -21,7 +21,10 @@ import (
 func newLogger(t *testing.T) (*logger.Logger, func() string) {
 	t.Helper()
 	dir := t.TempDir()
-	log, err := logger.New(logger.Config{ServiceName: "test", Path: dir})
+	// Wired like container.newLogger, so the request ID reaches every *Ctx line.
+	log, err := logger.New(logger.Config{
+		ServiceName: "test", Path: dir, ContextFields: []logger.ContextFields{LogFields},
+	})
 	if err != nil {
 		t.Fatalf("logger.New: %v", err)
 	}
@@ -207,6 +210,21 @@ func TestRequestIDFrom(t *testing.T) {
 	})
 }
 
+func TestLogFields(t *testing.T) {
+	t.Run("positive: the request ID becomes request_id", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), reqIDContextKey{}, "abc")
+		if got := LogFields(ctx); len(got) != 1 || got["request_id"] != "abc" {
+			t.Errorf("LogFields = %v, want {request_id: abc}", got)
+		}
+	})
+
+	t.Run("negative: no request ID, no fields", func(t *testing.T) {
+		if got := LogFields(context.Background()); got != nil {
+			t.Errorf("LogFields = %v, want nil", got)
+		}
+	})
+}
+
 func TestRequestContext(t *testing.T) {
 	t.Run("positive: unwraps a *gin.Context to its request context", func(t *testing.T) {
 		var got string
@@ -245,6 +263,23 @@ func TestAccessLog(t *testing.T) {
 			if !strings.Contains(out, want) {
 				t.Errorf("log = %s, want %s", out, want)
 			}
+		}
+	})
+
+	t.Run("positive: the line carries the request ID the response echoes, once", func(t *testing.T) {
+		log, read := newLogger(t)
+		recorder := get(only(ok, RequestID(), AccessLog(log)))
+		out := read()
+		want := `"request_id":"` + recorder.Header().Get(requestIDHeader) + `"`
+		if recorder.Header().Get(requestIDHeader) == "" || strings.Count(out, `"request_id":`) != 1 ||
+			!strings.Contains(out, want) {
+			t.Errorf("log = %s, want %s exactly once", out, want)
+		}
+	})
+
+	t.Run("negative: without RequestID in front the line has no request_id", func(t *testing.T) {
+		if _, out := logged(t, ok); strings.Contains(out, "request_id") {
+			t.Errorf("log = %s, want no request_id when nothing set one", out)
 		}
 	})
 
@@ -296,6 +331,15 @@ func TestRecovery(t *testing.T) {
 		})
 		if got := recorder.Body.String(); got != "half" {
 			t.Errorf("body = %q, want %q with no error JSON appended", got, "half")
+		}
+	})
+
+	t.Run("negative: the panic line carries the request ID", func(t *testing.T) {
+		log, read := newLogger(t)
+		recorder := get(only(func(*gin.Context) { panic("boom") }, RequestID(), Recovery(log)))
+		out := read()
+		if id := recorder.Header().Get(requestIDHeader); id == "" || !strings.Contains(out, `"request_id":"`+id+`"`) {
+			t.Errorf("log = %s, want the echoed request ID %q on the panic line", out, id)
 		}
 	})
 
