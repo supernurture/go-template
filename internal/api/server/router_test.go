@@ -22,6 +22,7 @@ import (
 
 	"github.com/supernurture/go-template/internal/config"
 	"github.com/supernurture/go-template/internal/container"
+	"github.com/supernurture/go-template/internal/middleware"
 	"github.com/supernurture/go-template/pkg/logger"
 	"github.com/supernurture/go-template/pkg/redis"
 )
@@ -42,7 +43,10 @@ func newTestDeps(t *testing.T) *container.Container {
 func newLoggedDeps(t *testing.T) (*container.Container, func() string) {
 	t.Helper()
 	dir := t.TempDir()
-	log, err := logger.New(logger.Config{ServiceName: "test", Path: dir})
+	// Wired like container.newLogger, so the request ID reaches every *Ctx line.
+	log, err := logger.New(logger.Config{
+		ServiceName: "test", Path: dir, ContextFields: []logger.ContextFields{middleware.LogFields},
+	})
 	if err != nil {
 		t.Fatalf("logger.New: %v", err)
 	}
@@ -224,6 +228,32 @@ func TestRegister(t *testing.T) {
 		router := newTestRouter(t, testConfig(), deps)
 		_ = deps.Redis["example"].Close()
 		wantResponse(t, get(t, router, "/ready"), http.StatusServiceUnavailable, `{"condition":"NotReady"}`)
+	})
+
+	// The handler's line and the access-log line share the ID the client sees, with no handler copying it.
+	t.Run("negative: every line a failed readiness check writes carries the request ID", func(t *testing.T) {
+		deps, logged := newLoggedDeps(t)
+		withRedis(t, deps)
+		router := newTestRouter(t, testConfig(), deps)
+		_ = deps.Redis["example"].Close()
+
+		rec := get(t, router, "/ready")
+		id := rec.Header().Get("X-Request-ID")
+		var lines []string
+		for line := range strings.Lines(logged()) {
+			if strings.Contains(line, `"message":"readiness check failed"`) ||
+				strings.Contains(line, `"message":"request"`) {
+				lines = append(lines, line)
+			}
+		}
+		if id == "" || len(lines) != 2 {
+			t.Fatalf("request ID %q, lines %q, want an ID and both the check and access-log lines", id, lines)
+		}
+		for _, line := range lines {
+			if strings.Count(line, `"request_id":`) != 1 || !strings.Contains(line, `"request_id":"`+id+`"`) {
+				t.Errorf("line %s, want request_id %q exactly once", line, id)
+			}
+		}
 	})
 }
 

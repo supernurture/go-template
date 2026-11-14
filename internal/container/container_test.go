@@ -3,6 +3,8 @@ package container
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +12,13 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
 	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/supernurture/go-template/internal/config"
+	"github.com/supernurture/go-template/internal/middleware"
 	"github.com/supernurture/go-template/pkg/database"
 	"github.com/supernurture/go-template/pkg/redis"
 )
@@ -285,6 +289,33 @@ func TestNewLogger(t *testing.T) {
 		_ = log.Close()
 		if _, err := os.Stat(filepath.Join(cfg.Logger.Path, cfg.App.Name)); err != nil {
 			t.Errorf("log directory missing: %v", err)
+		}
+	})
+
+	// Without this hook every handler would have to copy the request ID into its fields again.
+	t.Run("positive: a *Ctx line carries the request ID", func(t *testing.T) {
+		cfg := testConfig(t)
+		log, err := newLogger(cfg)
+		if err != nil {
+			t.Fatalf("newLogger: %v", err)
+		}
+
+		gin.SetMode(gin.TestMode)
+		router := gin.New()
+		router.Use(middleware.RequestID())
+		router.GET("/", func(c *gin.Context) { log.InfoCtx(c.Request.Context(), "handled", nil) })
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		_ = log.Close()
+
+		files, _ := filepath.Glob(filepath.Join(cfg.Logger.Path, cfg.App.Name, "app-*.log"))
+		if len(files) != 1 {
+			t.Fatalf("log files = %v, want one", files)
+		}
+		written, _ := os.ReadFile(files[0])
+		id := rec.Header().Get("X-Request-ID")
+		if id == "" || !strings.Contains(string(written), `"request_id":"`+id+`"`) {
+			t.Errorf("log = %s, want request_id %q", written, id)
 		}
 	})
 

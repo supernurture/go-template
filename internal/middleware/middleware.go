@@ -71,6 +71,15 @@ func RequestIDFrom(ctx context.Context) string {
 	return reqID
 }
 
+// LogFields is the logger.ContextFields hook that puts the request ID on every *Ctx log line, so a
+// handler logs with log.InfoCtx(ctx, ...) instead of copying the ID into its fields.
+func LogFields(ctx context.Context) map[string]any {
+	if reqID := RequestIDFrom(ctx); reqID != "" {
+		return map[string]any{"request_id": reqID}
+	}
+	return nil
+}
+
 // RequestContext unwraps the *gin.Context the generated handlers pass down. Work that outlives
 // the request must not hold it: gin pools it and rebinds c.Request for the next one.
 func RequestContext(ctx context.Context) context.Context {
@@ -88,7 +97,6 @@ func AccessLog(log *logger.Logger) gin.HandlerFunc {
 
 		status := c.Writer.Status()
 		fields := map[string]any{
-			"request_id": RequestIDFrom(c.Request.Context()),
 			"method":     c.Request.Method,
 			"path":       c.Request.URL.Path,
 			"status":     status,
@@ -100,13 +108,14 @@ func AccessLog(log *logger.Logger) gin.HandlerFunc {
 			fields["errors"] = c.Errors.Errors()
 		}
 
+		ctx := c.Request.Context()
 		switch {
 		case status >= http.StatusInternalServerError:
-			log.Error("request", fields)
+			log.ErrorCtx(ctx, "request", fields)
 		case status >= http.StatusBadRequest:
-			log.Warn("request", fields)
+			log.WarnCtx(ctx, "request", fields)
 		default:
-			log.Info("request", fields)
+			log.InfoCtx(ctx, "request", fields)
 		}
 	}
 }
@@ -120,10 +129,9 @@ func Recovery(log *logger.Logger) gin.HandlerFunc {
 					panic(err)
 				}
 
-				log.Error("panic recovered", map[string]any{
-					"request_id": RequestIDFrom(c.Request.Context()),
-					"panic":      fmt.Sprint(err),
-					"stack":      string(debug.Stack()),
+				log.ErrorCtx(c.Request.Context(), "panic recovered", map[string]any{
+					"panic": fmt.Sprint(err),
+					"stack": string(debug.Stack()),
 				})
 				if c.Writer.Written() {
 					c.Abort()
