@@ -184,7 +184,9 @@ The error ratio counts server spans in status ERROR: a 5xx, or a request whose h
 | `make build` / `build-all` | Host binary / cross-compile |
 | `make docker-build` / `docker-run` | Distroless image |
 
-`docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Point the hosts at `host.docker.internal` (or run the app inside the compose network) when you containerise it.
+`make help` lists every target, including `vet`, `lint`, `fmt`, `tidy` and `clean`.
+
+`docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Compose publishes Postgres and Redis on `127.0.0.1` only, so join the compose network and point the hosts at the service names (`docker run --network go-template_default …`, compose naming it after the folder; hosts `postgres` and `redis`); `host.docker.internal` reaches them on Docker Desktop but not on Linux.
 
 In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the platform to collect, and nothing is written inside the image. It is also faster under load: the log file takes a lock and a write per line, which caps one instance at around 130k requests a second however many cores it has (`BenchmarkLogFile`).
 
