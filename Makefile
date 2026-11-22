@@ -28,9 +28,8 @@ test: ## Run tests with race detector
 # Generated contracts are excluded: `make oapicodegen` overwrites any fix made there.
 COVERPKG = $(shell go list ./... | grep -v oapicodegen | paste -sd,)
 
-# -coverpkg credits code reached through another package's tests, at the cost of a noisy
-# per-package percentage on every line; sed drops those, the merged total is what counts.
-# pipefail inline, not .SHELLFLAGS: make 3.81 ignores that variable and would hide a failure.
+# -coverpkg credits code reached from other packages' tests; sed drops the noisy per-package figures.
+# pipefail goes inline because make 3.81 ignores .SHELLFLAGS and would hide a failure.
 COVERTEST = set -o pipefail; go test -coverpkg=$(COVERPKG) -coverprofile=coverage.out ./... | sed 's/coverage:.*//'
 
 cover: ## Run tests and open coverage report

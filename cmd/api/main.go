@@ -95,9 +95,13 @@ func run(ctx context.Context) (err error) {
 	if shutdownTimeout <= 0 {
 		shutdownTimeout = defaultShutdownTimeout
 	}
-	deps.Logger.Info("shutting down", map[string]any{"timeout": shutdownTimeout.String()})
+	// The span flush on Close comes out of the same budget, so the whole exit stays within it.
+	drainTimeout := deps.SplitShutdown(shutdownTimeout)
+	deps.Logger.Info("shutting down", map[string]any{
+		"timeout": shutdownTimeout.String(), "drain_timeout": drainTimeout.String(),
+	})
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	if shutdownErr := srv.Shutdown(shutdownCtx); shutdownErr != nil {
 		return fmt.Errorf("shutdown server: %w", shutdownErr)

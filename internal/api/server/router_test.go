@@ -43,7 +43,7 @@ func newTestDeps(t *testing.T) *container.Container {
 func newLoggedDeps(t *testing.T) (*container.Container, func() string) {
 	t.Helper()
 	dir := t.TempDir()
-	// Wired like container.newLogger, so the request ID reaches every *Ctx line.
+	// Wired like container.newLogger with tracing off, so the request ID reaches every *Ctx line.
 	log, err := logger.New(logger.Config{
 		ServiceName: "test", Path: dir, ContextFields: []logger.ContextFields{middleware.LogFields},
 	})
@@ -80,7 +80,7 @@ func withRedis(t *testing.T, deps *container.Container) *container.Container {
 	return deps
 }
 
-func withPostgres(t *testing.T, deps *container.Container) (*container.Container, sqlmock.Sqlmock) {
+func withPostgres(t testing.TB, deps *container.Container) (*container.Container, sqlmock.Sqlmock) {
 	t.Helper()
 	sqlDB, mock, err := sqlmock.New()
 	if err != nil {
@@ -258,12 +258,14 @@ func TestRegister(t *testing.T) {
 }
 
 func TestInvalidParam(t *testing.T) {
-	t.Run("positive: answers with the given status and records the cause", func(t *testing.T) {
+	// c.Errors would mark the trace span as failed for what is the caller's mistake.
+	t.Run("positive: answers with the given status and records a reason, not an error", func(t *testing.T) {
 		c, rec := testContext(context.Background())
 		invalidParam(c, errors.New("Invalid format for parameter limit"), http.StatusBadRequest)
 		wantResponse(t, rec, http.StatusBadRequest, `{"message":"Invalid format for parameter limit"}`)
-		if len(c.Errors) != 1 {
-			t.Errorf("c.Errors = %v, want the cause recorded for AccessLog", c.Errors)
+		reason, _ := c.Get("middleware.reason")
+		if len(c.Errors) != 0 || reason != "Invalid format for parameter limit" {
+			t.Errorf("c.Errors = %v, reason = %v; want only the reason recorded", c.Errors, reason)
 		}
 	})
 
@@ -298,6 +300,9 @@ func TestBadRequest(t *testing.T) {
 		c, rec := testContext(context.Background())
 		badRequest(c, io.EOF)
 		wantResponse(t, rec, http.StatusBadRequest, `{"message":"a JSON body is required"}`)
+		if reason, _ := c.Get("middleware.reason"); len(c.Errors) != 0 || reason != "EOF" {
+			t.Errorf("c.Errors = %v, reason = %v; want the decoder's error as the reason", c.Errors, reason)
+		}
 	})
 
 	// The decoder's message names Go types, which says more about the server than the caller needs.

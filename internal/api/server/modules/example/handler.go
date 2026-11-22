@@ -42,12 +42,10 @@ func (h *Handler) ListExampleNotes(
 	ctx context.Context,
 	request examplecontract.ListExampleNotesRequestObject,
 ) (examplecontract.ListExampleNotesResponseObject, error) {
-	ctx = middleware.RequestContext(ctx)
-
-	notes, err := h.service.ListNotes(ctx, request.Params.Limit)
+	notes, err := h.service.ListNotes(middleware.RequestContext(ctx), request.Params.Limit)
 	if err != nil {
 		if message, ok := validationMessage(err); ok {
-			return examplecontract.ListExampleNotes400JSONResponse{Message: message}, nil
+			return examplecontract.ListExampleNotes400JSONResponse{Message: middleware.Reject(ctx, message)}, nil
 		}
 		return nil, err
 	}
@@ -60,13 +58,16 @@ func (h *Handler) ListExampleNotes(
 }
 
 func (h *Handler) CreateExampleNote(
-	ctx context.Context,
+	ginCtx context.Context,
 	request examplecontract.CreateExampleNoteRequestObject,
 ) (examplecontract.CreateExampleNoteResponseObject, error) {
-	ctx = middleware.RequestContext(ctx)
+	// ginCtx is kept for Reject; everything downstream gets the request context.
+	ctx := middleware.RequestContext(ginCtx)
 
 	if request.Body == nil {
-		return examplecontract.CreateExampleNote400JSONResponse{Message: "a JSON body is required"}, nil
+		return examplecontract.CreateExampleNote400JSONResponse{
+			Message: middleware.Reject(ginCtx, "a JSON body is required"),
+		}, nil
 	}
 
 	var body string
@@ -77,7 +78,7 @@ func (h *Handler) CreateExampleNote(
 	note, err := h.service.CreateNote(ctx, request.Body.Title, body)
 	if err != nil {
 		if message, ok := validationMessage(err); ok {
-			return examplecontract.CreateExampleNote400JSONResponse{Message: message}, nil
+			return examplecontract.CreateExampleNote400JSONResponse{Message: middleware.Reject(ginCtx, message)}, nil
 		}
 		return nil, err
 	}

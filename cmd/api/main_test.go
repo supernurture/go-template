@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/supernurture/go-template/internal/config"
 	"github.com/supernurture/go-template/internal/container"
@@ -281,5 +283,45 @@ func TestRun(t *testing.T) {
 
 		cancel()
 		wantRunError(t, waitFor(t, done), "shutdown server")
+	})
+
+	// The flush on Close comes out of the same budget, so drain plus flush never overruns it.
+	t.Run("positive: with tracing on, a quarter of server.shutdown_timeout is kept for the flush", func(t *testing.T) {
+		port, listener := freePort(t)
+		_ = listener.Close()
+		const timeout = "  timeout: 5s\n"
+		writeConfig(t, strings.Replace(validConfig(port), timeout, timeout+"  shutdown_timeout: 2s\n", 1)+
+			"tracing:\n  enabled: true\n  endpoint: http://127.0.0.1:1\n  sample_ratio: 1\n")
+		t.Cleanup(func() { otel.SetTracerProvider(noop.NewTracerProvider()) })
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- run(ctx) }()
+		_ = getHealth(t, port).Body.Close()
+
+		// A connection that never sends a request holds the drain open until its deadline.
+		conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		time.Sleep(100 * time.Millisecond)
+
+		start := time.Now()
+		cancel()
+		wantRunError(t, waitFor(t, done), "shutdown server")
+		// 1.5s of drain; the full 2s would leave the flush nothing and overrun the budget.
+		if took := time.Since(start); took < 1500*time.Millisecond || took >= 1900*time.Millisecond {
+			t.Errorf("shutdown took %v, want the drain cut to about 1.5s", took)
+		}
+
+		files, _ := filepath.Glob(filepath.Join("logs", "template", "app-*.log"))
+		if len(files) != 1 {
+			t.Fatalf("log files = %v, want one", files)
+		}
+		written, _ := os.ReadFile(files[0])
+		if !strings.Contains(string(written), `"drain_timeout":"1.5s"`) {
+			t.Errorf("log = %s, want drain_timeout 1.5s", written)
+		}
 	})
 }

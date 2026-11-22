@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 
 	"github.com/supernurture/go-template/internal/config"
@@ -14,6 +16,7 @@ import (
 	"github.com/supernurture/go-template/pkg/database"
 	"github.com/supernurture/go-template/pkg/logger"
 	"github.com/supernurture/go-template/pkg/redis"
+	"github.com/supernurture/go-template/pkg/tracing"
 )
 
 // Container holds shared dependencies, keyed by their config name.
@@ -23,8 +26,11 @@ type Container struct {
 	Postgres   map[string]*gorm.DB
 	SQLServer  map[string]*gorm.DB
 	Redis      map[string]*goredis.Client
+	// TracerProvider is nil when tracing.enabled is false; the router and clients then add no instrumentation.
+	TracerProvider trace.TracerProvider
 
-	shutdowns []func() error
+	flushTimeout time.Duration // set by SplitShutdown; maxFlushTimeout until then
+	shutdowns    []func() error
 }
 
 // NewContainer opens every configured dependency. Call Close when done.
@@ -35,14 +41,20 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	}
 
 	deps := &Container{
-		Logger:     log,
-		HTTPClient: httpclient.NewHTTPClient(cfg, log),
-		Postgres:   make(map[string]*gorm.DB, len(cfg.Databases.Postgres)),
-		SQLServer:  make(map[string]*gorm.DB, len(cfg.Databases.SQLServer)),
-		Redis:      make(map[string]*goredis.Client, len(cfg.Redis)),
+		Logger:    log,
+		Postgres:  make(map[string]*gorm.DB, len(cfg.Databases.Postgres)),
+		SQLServer: make(map[string]*gorm.DB, len(cfg.Databases.SQLServer)),
+		Redis:     make(map[string]*goredis.Client, len(cfg.Redis)),
 
 		shutdowns: []func() error{log.Close},
 	}
+
+	// Tracing opens before anything it instruments, so Close flushes spans after those are closed.
+	if err := deps.openTracing(cfg); err != nil {
+		_ = deps.Close()
+		return nil, err
+	}
+	deps.HTTPClient = httpclient.NewHTTPClient(cfg, log, deps.TracerProvider)
 
 	if err := deps.open(cfg); err != nil {
 		_ = deps.Close()
@@ -96,6 +108,9 @@ func (c *Container) open(cfg *config.Config) error {
 		}
 		c.Postgres[name] = conn
 		c.shutdowns = append(c.shutdowns, closeGorm(conn))
+		if err := c.traceGorm(conn, "postgresql"); err != nil {
+			return fmt.Errorf("trace postgres %q: %w", name, err)
+		}
 	}
 
 	for name, db := range cfg.Databases.SQLServer {
@@ -109,6 +124,9 @@ func (c *Container) open(cfg *config.Config) error {
 		}
 		c.SQLServer[name] = conn
 		c.shutdowns = append(c.shutdowns, closeGorm(conn))
+		if err := c.traceGorm(conn, "microsoft.sql_server"); err != nil {
+			return fmt.Errorf("trace sql server %q: %w", name, err)
+		}
 	}
 
 	for name, cache := range cfg.Redis {
@@ -124,6 +142,9 @@ func (c *Container) open(cfg *config.Config) error {
 		}
 		c.Redis[name] = client
 		c.shutdowns = append(c.shutdowns, client.Close)
+		if err := c.traceRedis(client); err != nil {
+			return fmt.Errorf("trace redis %q: %w", name, err)
+		}
 	}
 
 	return nil
@@ -142,7 +163,7 @@ func newLogger(cfg *config.Config) (*logger.Logger, error) {
 			MaxSizeMB:  cfg.Logger.RotationSizeMB,
 			MaxAgeDays: cfg.Logger.RetentionDays,
 		},
-		ContextFields: []logger.ContextFields{middleware.LogFields},
+		ContextFields: []logger.ContextFields{middleware.LogFields, tracing.LogFields},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build logger: %w", err)

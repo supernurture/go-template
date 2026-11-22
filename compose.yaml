@@ -1,4 +1,5 @@
 # Local dependencies only; the app itself runs on the host via `make run`.
+# `docker compose up -d` starts Postgres and Redis; add `--profile observability` for Grafana.
 services:
   postgres:
     # Pinned to 17: the 18 image moved PGDATA, so the volume below would silently stop persisting.
@@ -29,6 +30,39 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Opt-in via --profile observability: Grafana, Tempo, Loki and Prometheus with the dashboard loaded.
+  # Set tracing.enabled: true in config.yaml, then `make run`; see README "Tracing".
+  lgtm:
+    image: grafana/otel-lgtm:0.38.1
+    profiles: [observability]
+    # Loopback only: the image's Grafana needs no login and makes every visitor an Admin.
+    ports:
+      - "127.0.0.1:3000:3000" # Grafana
+      - "127.0.0.1:4318:4318" # OTLP/HTTP, where tracing.endpoint points
+      - "127.0.0.1:9090:9090" # Prometheus
+    volumes:
+      - ./deploy/observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/go-template.yaml:ro
+      - ./deploy/observability/grafana/go-template.json:/otel-lgtm/go-template-dashboard.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # Ships the JSON log files under ./logs to Loki, so a log line links to its trace.
+  alloy:
+    image: grafana/alloy:v1.21.2
+    profiles: [observability]
+    command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+    volumes:
+      - ./deploy/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # The project, not ./logs: a bind mount whose source is missing is created as root,
+      # and `make run` could then not write its logs there.
+      - ./:/project:ro
+    depends_on:
+      lgtm:
+        condition: service_healthy
 
 volumes:
   postgres-data:

@@ -30,6 +30,9 @@ dist/
 *.out
 coverage.*
 
+# Local observability stack, used by compose only
+deploy/
+
 # Docs & build files
 # Not needed to compile; excluding them keeps a README edit from invalidating the build cache.
 Dockerfile

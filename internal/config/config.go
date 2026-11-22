@@ -20,6 +20,7 @@ type Config struct {
 	Redis     map[string]Redis   `mapstructure:"redis"     validate:"omitempty,dive"`
 	Services  map[string]Service `mapstructure:"services"  validate:"omitempty,dive"`
 	Logger    Logger             `mapstructure:"logger"`
+	Tracing   Tracing            `mapstructure:"tracing"`
 }
 
 // App holds application identity and environment.
@@ -108,6 +109,13 @@ type Logger struct {
 	RetentionDays   int    `mapstructure:"retention_days"   validate:"gte=0"`
 	Console         bool   `mapstructure:"console"          validate:"required_if=DisableFile true"`
 	DisableFile     bool   `mapstructure:"disable_file"`
+}
+
+// Tracing turns on OpenTelemetry spans for requests, queries, Redis commands, and upstream calls.
+type Tracing struct {
+	Enabled     bool    `mapstructure:"enabled"`
+	Endpoint    string  `mapstructure:"endpoint"     validate:"omitempty,url"`
+	SampleRatio float64 `mapstructure:"sample_ratio" validate:"gte=0,lte=1"`
 }
 
 const (
