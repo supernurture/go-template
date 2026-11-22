@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	examplecontract "github.com/supernurture/go-template/internal/api/server/oapicodegen/example"
 	"github.com/supernurture/go-template/pkg/logger"
@@ -24,6 +28,24 @@ func testLogger(t *testing.T) *logger.Logger {
 	t.Cleanup(func() { _ = log.Close() })
 
 	return log
+}
+
+// ginContext is what the generated strict handler passes as ctx.
+func ginContext() *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	return c
+}
+
+// wantReason checks middleware.Reject saw reason, without depending on the key it stores it under.
+func wantReason(t *testing.T, c *gin.Context, reason string) {
+	t.Helper()
+	for _, value := range c.Keys {
+		if value == reason {
+			return
+		}
+	}
+	t.Errorf("gin keys = %v, want the reason %q recorded", c.Keys, reason)
 }
 
 func nilHandler(t *testing.T) *Handler { return NewHandler(nilService(), testLogger(t)) }
@@ -124,6 +146,15 @@ func TestListExampleNotes(t *testing.T) {
 		}
 	})
 
+	t.Run("negative: an invalid limit's message is recorded for the access log", func(t *testing.T) {
+		limit := 0
+		c := ginContext()
+		_, _ = nilHandler(t).ListExampleNotes(c, examplecontract.ListExampleNotesRequestObject{
+			Params: examplecontract.ListExampleNotesParams{Limit: &limit},
+		})
+		wantReason(t, c, "limit must be between 1 and 100")
+	})
+
 	t.Run("negative: a database failure is an error, not a 400", func(t *testing.T) {
 		repo, mock := mockRepository(t)
 		mock.ExpectQuery(`SELECT \* FROM "example_notes"`).WillReturnError(errors.New("connection reset"))
@@ -195,6 +226,18 @@ func TestCreateExampleNote(t *testing.T) {
 			if err != nil || !ok || bad.Message != want {
 				t.Errorf("CreateExampleNote = (%#v, %v), want a 400 saying %q", response, err, want)
 			}
+		}
+	})
+
+	t.Run("negative: the 400's message is recorded for the access log", func(t *testing.T) {
+		requests := map[string]examplecontract.CreateExampleNoteRequestObject{
+			"a JSON body is required": {},
+			"title is required":       createRequest("  ", nil),
+		}
+		for want, request := range requests {
+			c := ginContext()
+			_, _ = nilHandler(t).CreateExampleNote(c, request)
+			wantReason(t, c, want)
 		}
 	})
 

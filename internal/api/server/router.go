@@ -28,6 +28,10 @@ func NewRouter(cfg *config.Config, deps *container.Container) (*gin.Engine, erro
 
 	// Without this, a handler's *gin.Context carries no deadline and the timeout never reaches downstream calls.
 	router.ContextWithFallback = true
+	// First, so the span covers the whole chain and every log line under it carries its trace_id.
+	if deps.TracerProvider != nil {
+		router.Use(serverTracing(cfg.App.Name, deps.TracerProvider))
+	}
 	router.Use(middleware.Default(cfg, deps.Logger)...)
 
 	register(router, deps)
@@ -66,13 +70,13 @@ var (
 
 // invalidParam answers a path or query parameter that does not parse; the message names the parameter.
 func invalidParam(c *gin.Context, err error, status int) {
-	_ = c.Error(err)
-	c.JSON(status, gin.H{"message": err.Error()})
+	c.JSON(status, gin.H{"message": middleware.Reject(c, err.Error())})
 }
 
 // badRequest answers a body the server could not decode; the decoder's message is about the caller's input.
+// The log gets the decoder's own error even where the body says something friendlier.
 func badRequest(c *gin.Context, err error) {
-	_ = c.Error(err)
+	middleware.Reject(c, err.Error())
 	switch tooLarge := (*http.MaxBytesError)(nil); {
 	case errors.As(err, &tooLarge):
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"message": "request body too large"})

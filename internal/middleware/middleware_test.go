@@ -21,7 +21,7 @@ import (
 func newLogger(t *testing.T) (*logger.Logger, func() string) {
 	t.Helper()
 	dir := t.TempDir()
-	// Wired like container.newLogger, so the request ID reaches every *Ctx line.
+	// Wired like container.newLogger with tracing off, so the request ID reaches every *Ctx line.
 	log, err := logger.New(logger.Config{
 		ServiceName: "test", Path: dir, ContextFields: []logger.ContextFields{LogFields},
 	})
@@ -296,10 +296,46 @@ func TestAccessLog(t *testing.T) {
 		}
 	})
 
+	t.Run("negative: a 4xx refused with Reject logs the reason and no errors", func(t *testing.T) {
+		recorder, out := logged(t, func(c *gin.Context) {
+			c.String(http.StatusBadRequest, Reject(c, "title is required"))
+		})
+		if recorder.Body.String() != "title is required" {
+			t.Errorf("body = %q, want Reject to return the reason", recorder.Body.String())
+		}
+		if !strings.Contains(out, `"level":"WARN"`) || !strings.Contains(out, `"reason":"title is required"`) ||
+			strings.Contains(out, `"errors"`) {
+			t.Errorf("log = %s, want a WARN with the reason and no errors field", out)
+		}
+	})
+
+	t.Run("negative: a request nothing rejected has no reason", func(t *testing.T) {
+		if _, out := logged(t, ok); strings.Contains(out, "reason") {
+			t.Errorf("log = %s, want no reason", out)
+		}
+	})
+
 	t.Run("negative: a 5xx is an ERROR", func(t *testing.T) {
 		if _, out := logged(t, func(c *gin.Context) { c.Status(http.StatusBadGateway) }); !strings.Contains(out,
 			`"level":"ERROR"`) {
 			t.Errorf("log = %s, want an ERROR", out)
+		}
+	})
+}
+
+func TestReject(t *testing.T) {
+	t.Run("positive: records the reason on the gin context, the last call winning", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		Reject(c, "first")
+		if got := Reject(c, "second"); got != "second" || c.GetString(reasonKey) != "second" {
+			t.Errorf("Reject = %q, stored %q; want second for both", got, c.GetString(reasonKey))
+		}
+	})
+
+	// The request context is what handlers pass on downstream; recording on it would need an allocation per request.
+	t.Run("negative: any other context records nothing and still returns the reason", func(t *testing.T) {
+		if got := Reject(context.Background(), "title is required"); got != "title is required" {
+			t.Errorf("Reject = %q, want the reason back", got)
 		}
 	})
 }

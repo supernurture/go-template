@@ -12,6 +12,13 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # Released in lockstep: bumped one PR at a time, a module pins its siblings at the old
+    # version and the build breaks, or tidy fails, until the rest follow.
+    groups:
+      opentelemetry:
+        patterns: ["go.opentelemetry.io/*"]
+      go-redis:
+        patterns: ["github.com/redis/go-redis/*"]
   - package-ecosystem: github-actions
     directory: /
     target-branch: development

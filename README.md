@@ -1,6 +1,6 @@
 # go-template
 
-A Go service template: config-driven dependencies, an OpenAPI-first HTTP layer, structured logging, and graceful shutdown. Clone it, delete the example module, and start writing your own.
+A Go service template: config-driven dependencies, an OpenAPI-first HTTP layer, structured logging, OpenTelemetry tracing, and graceful shutdown. Clone it, delete the example module, and start writing your own.
 
 ## Quickstart
 
@@ -11,7 +11,7 @@ docker compose up -d --wait   # PostgreSQL + Redis on the ports config.yaml expe
 make run
 ```
 
-The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs editing to get a running server. `--wait` matters on a fresh clone: the app pings every dependency at startup, and Postgres does not accept connections until it has run the schema below.
+The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs editing to get a running server. To see its traces and logs in Grafana as well, see [Tracing](#tracing). `--wait` matters on a fresh clone: the app pings every dependency at startup, and Postgres does not accept connections until it has run the schema below.
 
 ```bash
 curl localhost:8080/health
@@ -50,7 +50,7 @@ It is split into four files, the shape to follow for a module that has dependenc
 | `service.go` | Validation, defaults, the actual behaviour | the repository and any clients |
 | `repository.go` | The stored rows and their queries | `*gorm.DB` |
 
-The handler does no validation and holds no client, so the rules are testable without HTTP; the service returns a `ValidationError` for a caller mistake and a wrapped error for anything else, and the handler turns the first into the spec's `400` and lets the second become a `500`. Nothing above `repository.go` sees a `*gorm.DB`.
+The handler does no validation and holds no client, so the rules are testable without HTTP; the service returns a `ValidationError` for a caller mistake and a wrapped error for anything else, and the handler turns the first into the spec's `400`, passing the message through `middleware.Reject` so the access log records it as `reason`, and lets the second become a `500`. Nothing above `repository.go` sees a `*gorm.DB`.
 
 Take only the layers you need. `modules/health` has no rules and no table of its own, so it is a single `handler.go` — add `service.go` when there is a rule to enforce, `repository.go` when there is a table.
 
@@ -88,7 +88,7 @@ Every entry under `databases:` and `redis:` is opened **and pinged** at startup,
 
 `server.timeout` is the deadline a handler and everything it calls gets. The server's write timeout is derived from it, so raising one raises the other; keep every upstream `services.*.timeout` below it, or the request dies before the shorter deadline can fire.
 
-On SIGTERM the server stops accepting and waits `server.shutdown_timeout` (default 8s) for requests in flight. Keep it under your platform's grace period — 10s for `docker stop`, 30s by default on Kubernetes — or the process is killed mid-drain. A request running longer than it is cut off, so where the grace period allows, set it above `server.timeout`.
+On SIGTERM the server stops accepting and waits `server.shutdown_timeout` (default 8s) for requests in flight — less the share tracing keeps to flush spans, when it is on. Keep it under your platform's grace period — 10s for `docker stop`, 30s by default on Kubernetes — or the process is killed mid-drain. A request running longer than it is cut off, so where the grace period allows, set it above `server.timeout`.
 
 ## Layout
 
@@ -102,14 +102,15 @@ internal/container/    Opens every configured dependency; Close unwinds in rever
 internal/httpclient/   The app's configured upstream clients
 internal/middleware/   Request ID, access log, recovery, timeout, security headers, CORS, body limit
 internal/pkg/          App-specific helpers, not meant to be lifted out
-pkg/                   Reusable, app-agnostic: database, redis, logger, httpclient, util
+pkg/                   Reusable, app-agnostic: database, redis, logger, tracing, httpclient, util
+deploy/observability/  Grafana dashboard and Alloy config for compose's observability profile
 ```
 
 `internal/` is app-specific and free to change; `pkg/` is meant to be lifted into other services.
 
 ### Dependencies
 
-`container.NewContainer` opens everything in `config.yaml` and registers a shutdown hook per connection. `Close` runs them in reverse so the logger outlives anything that might log while closing. If one dependency fails to open, the ones already open are closed before the error is returned.
+`container.NewContainer` opens everything in `config.yaml` and registers a shutdown hook per connection, plus one that flushes spans when tracing is on. `Close` runs them in reverse so the logger outlives anything that might log while closing, and the flush comes after every connection it traced. If one dependency fails to open, the ones already open are closed before the error is returned.
 
 Handlers receive what they need through their constructor — they never see the container.
 
@@ -117,9 +118,56 @@ Handlers receive what they need through their constructor — they never see the
 
 Every request passes through `middleware.Default`: request ID, access log, panic recovery, timeout, security headers, CORS, and a body-size limit. `ContextWithFallback` is on, so the `context.Context` a handler receives carries the timeout deadline — pass it to every database, cache, and HTTP call and a stalled dependency cannot outlive the request.
 
-That same context carries the request ID. Log with the `*Ctx` methods — `log.InfoCtx(ctx, "note created", fields)` — and the line gets `request_id` without the handler copying it, so it lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note. The logger gets the ID from the `middleware.LogFields` hook that `container.newLogger` installs through `logger.Config.ContextFields`; a key you pass in `fields` wins over the hook's. Use the plain `Info`/`Warn` methods only for lines outside a request, such as startup. `middleware.RequestIDFrom(ctx)` still returns the ID when you need it for something other than a log line.
+That same context carries the request ID. Log with the `*Ctx` methods — `log.InfoCtx(ctx, "note created", fields)` — and the line gets `request_id` without the handler copying it, so it lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note. The logger gets the ID from the `middleware.LogFields` hook that `container.newLogger` installs through `logger.Config.ContextFields`; a key you pass in `fields` wins over the hook's. Use the plain `Info`/`Warn` methods only for lines outside a request, such as startup. `middleware.RequestIDFrom(ctx)` still returns the ID when you need it for something other than a log line. With tracing on, the same lines also get `trace_id` and `span_id` — see below.
 
 `/health` is the liveness probe and never touches a dependency; `/ready` pings every database and Redis from `container.Pings` and answers 503 if one is down, logging which. The checks run concurrently, each capped at 2s, so give the probe a `timeoutSeconds` of 3 or more. Point a Kubernetes readiness probe at `/ready` and a liveness probe at `/health`, so an outage takes the pod out of rotation instead of restarting it.
+
+## Tracing
+
+Off by default. Set `tracing.enabled: true` and point `tracing.endpoint` at an OTLP/HTTP collector — Grafana Alloy, Tempo, or Jaeger — and every request becomes a trace:
+
+| Span | From | Carries |
+| --- | --- | --- |
+| `GET /example/notes` | `otelgin`, first in the chain | route, status |
+| `SELECT example_notes` | `database.NewTracingPlugin` on every GORM connection | the SQL with its `$1` placeholders, never the bound values |
+| `incr` | `redisotel` on every Redis client | the command name, not its arguments |
+| a client span per call | `otelhttp` on every `services:` client | method and status, and a `traceparent` header so the upstream's spans join the trace |
+
+Every `*Ctx` log line inside a request then carries `trace_id`, `span_id` and `trace_flags` — the names and lowercase-hex encoding the OpenTelemetry spec asks of non-OTLP logs — next to `request_id`, so Grafana can jump from a Loki line to its trace in Tempo. A request that arrives with a `traceparent` continues the caller's trace instead of starting one.
+
+`tracing.sample_ratio` is the share of new traces kept. Lines of a trace that was not kept still carry its `trace_id`, with `trace_flags` `00`. Keep `1.0` locally; production usually wants `0.1` or less. A caller's decision wins over the ratio, so one trace is never half recorded across services.
+
+Left out on purpose: `/health` and `/ready`, since a probe every few seconds per pod would outnumber real requests, and the Redis `PING` that `/ready` sends. Redis arguments and SQL values stay off the spans because they can hold tokens and personal data.
+
+To add a span of your own, `otel.Tracer("<module>").Start(ctx, "name")` — the container installs its provider globally. Pass the handler's `ctx` down, as for the timeout, or the span starts a trace of its own.
+
+The standard `OTEL_*` variables still apply: `OTEL_EXPORTER_OTLP_ENDPOINT` when `tracing.endpoint` is empty, `OTEL_EXPORTER_OTLP_HEADERS` for a collector that wants an API key, `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` to override what `app:` sets.
+
+A collector that is down never stops the app. The batch it cannot take is dropped and the exporter's failure lands in the JSON log as an `opentelemetry error` warning. On shutdown, the spans still buffered are flushed out of the same `server.shutdown_timeout`: a quarter of it, at most 2s, so the default 8s drains requests for 6s and flushes for 2s, and the whole exit stays under `docker stop`'s 10s. Without tracing the full budget drains. A flush that runs out is logged as `spans not flushed on shutdown` rather than failing the exit.
+
+Cost, from `BenchmarkTracing` on `/example/visits` with Redis answered in-process: off adds nothing; on adds about 5µs of CPU and 43 allocations to a 5µs request at a 10% ratio, and about 10µs at 100%. Most of it is paid whether or not the trace is kept, so a lower ratio saves export work more than request time. Tracing takes no lock of its own: in parallel it scales as well as the untraced request does. Spans are queued and exported in the background, so a slow collector costs dropped spans, never request latency. One instance exports about 130k spans a second; on the benchmark machine that drops spans above roughly 65k requests a second at 100%, and nothing at 10%. The binary grows by about 6 MB.
+
+### Locally, in Grafana
+
+```bash
+docker compose --profile observability up -d --wait   # Postgres, Redis, Grafana LGTM, Alloy
+# configs/config.yaml: tracing.enabled: true (the endpoint already points at it)
+make run
+```
+
+Open http://localhost:3000/d/go-template-overview — no login: the image makes every visitor an Admin, which is why compose publishes its ports on loopback only. `grafana/otel-lgtm` is Grafana, Tempo, Loki and Prometheus in one container; Alloy tails the log files under `./logs` into Loki, so `logger.disable_file` must stay `false`. Prometheus, at http://localhost:9090, holds the rate, error and duration metrics Tempo derives from the spans — the app exports no metrics of its own yet. Nothing is persisted: `docker compose --profile observability down` drops it all.
+
+The dashboard, `deploy/observability/grafana/go-template.json`, has three rows:
+
+| Row | Shows |
+| --- | --- |
+| Overview | Requests/s, error ratio, p95, 5xx from the access log; throughput, latency and errors per route; HTTP status codes; Postgres and Redis calls; the service graph |
+| Logs | Volume by level, the paths failing most often, and the lines themselves, each linking to its trace |
+| Traces | Recent and error traces, the slowest queries, and one trace by ID |
+
+The boxes along the top filter every panel they apply to: route, log level and minimum duration, plus free-text search over log lines, `trace_id` (which also opens that trace) and `request_id`. Edits made in Grafana survive until the container is recreated; export the dashboard over `go-template.json` to keep them. Its datasources are variables, so the same file imports into any Grafana with a Prometheus, Loki and Tempo.
+
+The error ratio counts server spans in status ERROR: a 5xx, or a request whose handler called `c.Error`. A 4xx leaves the span unset, as the HTTP conventions ask, so record why a request was refused with `middleware.Reject` rather than `c.Error`; `invalidParam`, `badRequest` and the example handlers do.
 
 ## Make targets
 
@@ -138,7 +186,7 @@ That same context carries the request ID. Log with the `*Ctx` methods — `log.I
 
 `docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Point the hosts at `host.docker.internal` (or run the app inside the compose network) when you containerise it.
 
-In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the platform to collect, and nothing is written inside the image.
+In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the platform to collect, and nothing is written inside the image. It is also faster under load: the log file takes a lock and a write per line, which caps one instance at around 130k requests a second however many cores it has (`BenchmarkLogFile`).
 
 ## Requirements
 
@@ -155,8 +203,9 @@ In production code, exported functions come before unexported ones, so a file op
 
 `cmd/api` reaches its failure paths through the package-level seams in `main.go` — `exit`,
 `listen`, `newRouter`, `closeDeps` — which tests swap to force an error the real process
-cannot be made to produce. `internal/container` uses the same pattern, and so does
-`internal/middleware` for `generateID`, since `crypto/rand` cannot be made to fail.
+cannot be made to produce. `internal/container` uses the same pattern, `pkg/tracing` does
+for `newExporter`, which never fails without a dial, and so does `internal/middleware` for
+`generateID`, since `crypto/rand` cannot be made to fail.
 
 `make cover` and `make cover-gaps` exclude generated code under `oapicodegen/` and pass
 `-coverpkg`, so a module reached through the router is credited rather than reported as
