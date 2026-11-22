@@ -34,7 +34,7 @@ services:
   # Opt-in via --profile observability: Grafana, Tempo, Loki and Prometheus with the dashboard loaded.
   # Set tracing.enabled: true in config.yaml, then `make run`; see README "Tracing".
   lgtm:
-    image: grafana/otel-lgtm:0.38.1
+    image: grafana/otel-lgtm:0.41.0
     profiles: [observability]
     # Loopback only: the image's Grafana needs no login and makes every visitor an Admin.
     ports:
