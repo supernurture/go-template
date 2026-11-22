@@ -53,7 +53,7 @@ services:
 
   # Ships the JSON log files under ./logs to Loki, so a log line links to its trace.
   alloy:
-    image: grafana/alloy:v1.21.2
+    image: grafana/alloy:v1.22.0
     profiles: [observability]
     command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
     volumes:
