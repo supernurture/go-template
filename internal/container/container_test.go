@@ -13,7 +13,10 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	goredis "github.com/redis/go-redis/v9"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -278,6 +281,70 @@ func TestOpen(t *testing.T) {
 	})
 }
 
+func TestOpenTraced(t *testing.T) {
+	// Each failure must leave the connection's close hook registered, so NewContainer closes it.
+	t.Run("negative: instrumentation failure is wrapped with the dependency name", func(t *testing.T) {
+		boom := errors.New("boom")
+		tests := map[string]func(t *testing.T){
+			`trace postgres "primary"`: func(t *testing.T) {
+				newPostgres = openRegistered(t)
+			},
+			`trace sql server "legacy"`: func(t *testing.T) {
+				newSQLServer = openRegistered(t)
+			},
+			`trace redis "cache"`: func(t *testing.T) {
+				orig := instrumentRedis
+				instrumentRedis = func(goredis.UniversalClient, ...redisotel.TracingOption) error { return boom }
+				t.Cleanup(func() { instrumentRedis = orig })
+			},
+		}
+		for want, breakOne := range tests {
+			t.Run(want, func(t *testing.T) {
+				stubOpeners(t)
+				breakOne(t)
+				c, _ := recording()
+				err := c.open(everyDependency(testConfig(t)))
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("open = %v, want it to name %s", err, want)
+				}
+				if len(c.shutdowns) == 0 {
+					t.Error("no close hook registered for the connection that failed to instrument")
+				}
+				_ = c.Close()
+			})
+		}
+	})
+
+	t.Run("positive: every dependency is instrumented when tracing is on", func(t *testing.T) {
+		stubOpeners(t)
+		c, _ := recording()
+		if err := c.open(everyDependency(testConfig(t))); err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		dbs := map[string]*gorm.DB{"postgres": c.Postgres["primary"], "sql server": c.SQLServer["legacy"]}
+		for name, db := range dbs {
+			if len(db.Plugins) != 1 {
+				t.Errorf("%s plugins = %v, want the tracing plugin", name, db.Plugins)
+			}
+		}
+		_ = c.Close()
+	})
+}
+
+// openRegistered opens a mock whose tracing plugin is already in place, so a second Use fails.
+type opener = func(string, int, string, string, string, string, database.PoolConfig) (*gorm.DB, error)
+
+func openRegistered(t *testing.T) opener {
+	return func(string, int, string, string, string, string, database.PoolConfig) (*gorm.DB, error) {
+		db, mock := mockGorm(t, false)
+		mock.ExpectClose()
+		if err := db.Use(database.NewTracingPlugin(noop.NewTracerProvider(), "postgresql")); err != nil {
+			t.Fatalf("pre-register: %v", err)
+		}
+		return db, nil
+	}
+}
+
 func TestNewLogger(t *testing.T) {
 	t.Run("positive: builds a logger from config", func(t *testing.T) {
 		cfg := testConfig(t)
@@ -334,6 +401,34 @@ func TestNewLogger(t *testing.T) {
 		}
 		if _, err := newLogger(cfg); err == nil || !strings.Contains(err.Error(), "build logger") {
 			t.Fatalf("error = %v, want a wrapped logger failure", err)
+		}
+	})
+}
+
+func TestNewLoggerTraceFields(t *testing.T) {
+	t.Run("positive: a *Ctx line inside a span carries its trace_id and span_id", func(t *testing.T) {
+		cfg := testConfig(t)
+		log, err := newLogger(cfg)
+		if err != nil {
+			t.Fatalf("newLogger: %v", err)
+		}
+		provider := sdktrace.NewTracerProvider()
+		ctx, span := provider.Tracer("test").Start(context.Background(), "handler")
+		log.InfoCtx(ctx, "inside a span", nil)
+		span.End()
+		log.InfoCtx(context.Background(), "outside any span", nil)
+		_ = log.Close()
+
+		files, _ := filepath.Glob(filepath.Join(cfg.Logger.Path, cfg.App.Name, "app-*.log"))
+		written, _ := os.ReadFile(files[0])
+		lines := strings.Split(strings.TrimSpace(string(written)), "\n")
+		sc := span.SpanContext()
+		if len(lines) != 2 || !strings.Contains(lines[0], `"trace_id":"`+sc.TraceID().String()+`"`) ||
+			!strings.Contains(lines[0], `"span_id":"`+sc.SpanID().String()+`"`) {
+			t.Fatalf("log = %s, want the first line linked to span %s", written, sc.SpanID())
+		}
+		if strings.Contains(lines[1], "trace_id") {
+			t.Errorf("line outside a span = %s, want no trace_id", lines[1])
 		}
 	})
 }

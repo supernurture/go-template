@@ -10,6 +10,10 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/supernurture/go-template/internal/config"
 	"github.com/supernurture/go-template/pkg/logger"
 )
@@ -80,7 +84,26 @@ func authSeen(t *testing.T, auth config.ServiceAuth) []string {
 	service.Auth = auth
 	cfg.Services["example"] = service
 
-	resp, err := newExampleClient(cfg, log).Do(context.Background(), http.MethodGet, "/x", nil)
+	resp, err := newExampleClient(cfg, log, nil).Do(context.Background(), http.MethodGet, "/x", nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	_ = resp.Body.Close()
+	return got
+}
+
+// traceparentSeen sends one request under a parent span and returns the traceparent the upstream received.
+func traceparentSeen(parent context.Context, t *testing.T, provider trace.TracerProvider) string {
+	t.Helper()
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("traceparent")
+	}))
+	defer server.Close()
+
+	log, _ := newTestLogger(t)
+	resp, err := NewHTTPClient(testConfig(server.URL), log, provider).Example.
+		Do(parent, http.MethodGet, "/x", nil)
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
@@ -91,21 +114,55 @@ func authSeen(t *testing.T, auth config.ServiceAuth) []string {
 func TestNewHTTPClient(t *testing.T) {
 	t.Run("positive: builds every upstream", func(t *testing.T) {
 		log, _ := newTestLogger(t)
-		if clients := NewHTTPClient(testConfig("https://api.example.com"), log); clients.Example == nil {
+		if clients := NewHTTPClient(testConfig("https://api.example.com"), log, nil); clients.Example == nil {
 			t.Error("Example client was not built")
 		}
 	})
 
 	t.Run("negative: an empty config still builds every upstream", func(t *testing.T) {
 		log, _ := newTestLogger(t)
-		if clients := NewHTTPClient(&config.Config{}, log); clients.Example == nil {
+		if clients := NewHTTPClient(&config.Config{}, log, nil); clients.Example == nil {
 			t.Error("Example client was not built from an empty config")
 		}
 	})
 
 	t.Run("negative: a nil config panics", func(t *testing.T) {
 		log, _ := newTestLogger(t)
-		mustPanic(t, "NewHTTPClient(nil, log)", func() { NewHTTPClient(nil, log) })
+		mustPanic(t, "NewHTTPClient(nil, log)", func() { NewHTTPClient(nil, log, nil) })
+	})
+}
+
+func TestTracedClient(t *testing.T) {
+	t.Run("positive: an upstream call is a client span whose traceparent reaches the upstream", func(t *testing.T) {
+		recorder := tracetest.NewSpanRecorder()
+		provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+		parent, handler := provider.Tracer("test").Start(context.Background(), "handler")
+
+		got := traceparentSeen(parent, t, provider)
+		handler.End()
+
+		var client sdktrace.ReadOnlySpan
+		for _, span := range recorder.Ended() {
+			if span.SpanKind() == trace.SpanKindClient {
+				client = span
+			}
+		}
+		if client == nil || client.Parent().SpanID() != handler.SpanContext().SpanID() {
+			t.Fatalf("client span = %v, want a child of the handler's span", client)
+		}
+		want := "00-" + client.SpanContext().TraceID().String() + "-" + client.SpanContext().SpanID().String() + "-01"
+		if got != want {
+			t.Errorf("traceparent = %q, want %q: the upstream must see the client span as its parent", got, want)
+		}
+	})
+
+	t.Run("negative: without a provider no traceparent is sent", func(t *testing.T) {
+		provider := sdktrace.NewTracerProvider()
+		parent, span := provider.Tracer("test").Start(context.Background(), "handler")
+		defer span.End()
+		if got := traceparentSeen(parent, t, nil); got != "" {
+			t.Errorf("traceparent = %q, want none", got)
+		}
 	})
 }
 
@@ -161,7 +218,7 @@ func TestNewExampleClient(t *testing.T) {
 	// A missing service is only noticed on the first request, not at startup.
 	t.Run("negative: an unconfigured service fails on use", func(t *testing.T) {
 		log, _ := newTestLogger(t)
-		client := newExampleClient(&config.Config{}, log)
+		client := newExampleClient(&config.Config{}, log, nil)
 		if _, err := client.Do(context.Background(), http.MethodGet, "/x", nil); err == nil {
 			t.Error("Do = nil error, want a failure for a client with no base URL")
 		}

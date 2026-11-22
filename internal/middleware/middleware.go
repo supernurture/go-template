@@ -23,6 +23,8 @@ const (
 	maxRequestIDLen = 64
 
 	defaultMaxBodyBytes = 1 << 20
+
+	reasonKey = "middleware.reason"
 )
 
 type reqIDContextKey struct{}
@@ -89,6 +91,15 @@ func RequestContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// Reject records a 4xx's reason for AccessLog and returns it for the body; use it, not c.Error, which fails
+// the span. ctx must be the handler's *gin.Context: the request context records nothing.
+func Reject(ctx context.Context, reason string) string {
+	if c, ok := ctx.(*gin.Context); ok {
+		c.Set(reasonKey, reason)
+	}
+	return reason
+}
+
 // AccessLog logs one line per request: 5xx as error, 4xx as warn, rest as info.
 func AccessLog(log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -106,6 +117,9 @@ func AccessLog(log *logger.Logger) gin.HandlerFunc {
 
 		if len(c.Errors) > 0 {
 			fields["errors"] = c.Errors.Errors()
+		}
+		if reason, ok := c.Get(reasonKey); ok {
+			fields["reason"] = reason
 		}
 
 		ctx := c.Request.Context()

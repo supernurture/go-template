@@ -134,6 +134,17 @@ func TestLoad(t *testing.T) {
 			}
 		})
 
+		t.Run("tracing", func(t *testing.T) {
+			block := "tracing:\n  enabled: true\n  endpoint: http://alloy:4318\n  sample_ratio: 0.25\n"
+			cfg := mustLoad(t, validConfig+block)
+			if got := cfg.Tracing; !got.Enabled || got.Endpoint != "http://alloy:4318" || got.SampleRatio != 0.25 {
+				t.Errorf("tracing = %+v, want enabled, http://alloy:4318, 0.25", got)
+			}
+			if cfg := mustLoad(t, validConfig); cfg.Tracing.Enabled {
+				t.Error("tracing.enabled = true without a tracing block, want it off by default")
+			}
+		})
+
 		t.Run("environment overrides the file", func(t *testing.T) {
 			t.Setenv("APP_NAME", "from-env")
 			if cfg := mustLoad(t, validConfig); cfg.App.Name != "from-env" {
@@ -167,6 +178,10 @@ func TestLoad(t *testing.T) {
 			}
 			if got := cfg.Databases.Postgres["example"].User; got != "postgres" {
 				t.Errorf("postgres user = %q, want %q from .env.example", got, "postgres")
+			}
+			// Off, so a fresh clone does not log export errors for a collector it never started.
+			if cfg.Tracing.Enabled || cfg.Tracing.Endpoint == "" {
+				t.Errorf("tracing = %+v, want it off with an endpoint to switch on", cfg.Tracing)
 			}
 		})
 	})
@@ -208,7 +223,10 @@ func TestLoad(t *testing.T) {
 			"service endpoint has an empty path": {
 				validConfig + service("https://api.example.com", `inquiry: ""`), "Endpoints[inquiry]"},
 			// pkg/logger accepts any case, the validator only upper case.
-			"lower-case logger level": {strings.Replace(validConfig, "level: INFO", "level: info", 1), "Level"},
+			"lower-case logger level":       {strings.Replace(validConfig, "level: INFO", "level: info", 1), "Level"},
+			"tracing sample ratio above 1":  {validConfig + "tracing:\n  sample_ratio: 1.5\n", "SampleRatio"},
+			"tracing sample ratio below 0":  {validConfig + "tracing:\n  sample_ratio: -0.1\n", "SampleRatio"},
+			"tracing endpoint is not a url": {validConfig + "tracing:\n  endpoint: alloy\n", "Endpoint"},
 		}
 		for name, test := range tests {
 			t.Run(name, func(t *testing.T) {
