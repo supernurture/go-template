@@ -49,7 +49,7 @@ func Default(cfg *config.Config, log *logger.Logger) []gin.HandlerFunc {
 	}
 }
 
-// RequestID reuses a sane inbound X-Request-ID or generates one, then stores it in the request context and echoes it.
+// RequestID reuses a sane inbound X-Request-ID or generates one, stores it in the context and echoes it.
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqID := c.GetHeader(requestIDHeader)
@@ -73,8 +73,7 @@ func RequestIDFrom(ctx context.Context) string {
 	return reqID
 }
 
-// LogFields is the logger.ContextFields hook that puts the request ID on every *Ctx log line, so a
-// handler logs with log.InfoCtx(ctx, ...) instead of copying the ID into its fields.
+// LogFields is the logger.ContextFields hook that puts the request ID on every *Ctx line.
 func LogFields(ctx context.Context) map[string]any {
 	if reqID := RequestIDFrom(ctx); reqID != "" {
 		return map[string]any{"request_id": reqID}
@@ -82,8 +81,8 @@ func LogFields(ctx context.Context) map[string]any {
 	return nil
 }
 
-// RequestContext unwraps the *gin.Context the generated handlers pass down. Work that outlives
-// the request must not hold it: gin pools it and rebinds c.Request for the next one.
+// RequestContext unwraps the *gin.Context generated handlers pass down. Work outliving the request
+// must not hold it: gin pools and reuses it.
 func RequestContext(ctx context.Context) context.Context {
 	if c, ok := ctx.(*gin.Context); ok && c.Request != nil {
 		return c.Request.Context()
@@ -91,8 +90,8 @@ func RequestContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-// Reject records a 4xx's reason for AccessLog and returns it for the body; use it, not c.Error, which fails
-// the span. ctx must be the handler's *gin.Context: the request context records nothing.
+// Reject records a 4xx's reason for AccessLog and returns it for the body; c.Error would fail the span.
+// ctx must be the handler's *gin.Context.
 func Reject(ctx context.Context, reason string) string {
 	if c, ok := ctx.(*gin.Context); ok {
 		c.Set(reasonKey, reason)
@@ -159,7 +158,7 @@ func Recovery(log *logger.Logger) gin.HandlerFunc {
 	}
 }
 
-// Timeout gives the handler and every call it makes a deadline, answering 504 on overrun; zero or less disables it.
+// Timeout gives the handler and its calls a deadline, answering 504 on overrun; zero or less disables it.
 func Timeout(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if timeout <= 0 {
@@ -191,7 +190,7 @@ func SecurityHeaders(hsts bool) gin.HandlerFunc {
 	}
 }
 
-// CORS echoes an allowed Origin and answers preflight; an empty list allows none, "*" allows any without credentials.
+// CORS echoes an allowed Origin and answers preflight; empty allows none, "*" any without credentials.
 func CORS(allowed []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Add("Vary", "Origin")

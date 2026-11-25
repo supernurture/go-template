@@ -15,8 +15,8 @@ const (
 	tracerName        = "github.com/supernurture/go-template/pkg/database"
 )
 
-// NewTracingPlugin wraps each statement in an OTel client span holding the SQL's placeholders, never its
-// values; system is db.system.name. Unlike gorm.io/plugin/opentelemetry it links no ClickHouse or MySQL driver.
+// NewTracingPlugin wraps each statement in a client span with its placeholders, never its values;
+// system is db.system.name. Unlike gorm.io/plugin/opentelemetry, it links no extra drivers.
 func NewTracingPlugin(provider trace.TracerProvider, system string) gorm.Plugin {
 	return &tracingPlugin{tracer: provider.Tracer(tracerName), system: system}
 }
@@ -53,8 +53,7 @@ func (p *tracingPlugin) before(operation string) func(*gorm.DB) {
 		if operation != "" {
 			attrs = append(attrs, attribute.String("db.operation.name", operation))
 		}
-		// Statement.Context is left alone: a session reuses its Statement, and the next query would
-		// otherwise start under this span after it ended.
+		// Statement.Context stays as is: a session reuses it, so the next query would start under this span.
 		_, span := p.tracer.Start(tx.Statement.Context, spanName(operation, tx.Statement.Table, p.system),
 			trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(attrs...))
 		tx.InstanceSet(spanInstanceKey, span)

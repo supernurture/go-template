@@ -52,7 +52,7 @@ func WithTransport(transport http.RoundTripper) Option {
 	return func(c *Client) { c.http.Transport = transport }
 }
 
-// New initializes a new Client with the provided options.
+// New builds a Client from opts.
 func New(opts ...Option) *Client {
 	client := &Client{
 		http:    &http.Client{Timeout: 30 * time.Second},
@@ -131,8 +131,8 @@ func decode(resp *http.Response, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// joinURL appends path to baseURL, keeping path's query string. The fragment is dropped (it is never
-// sent), and a ".." segment is refused: url.JoinPath would resolve it and climb out of the base path.
+// joinURL appends path to baseURL, keeping its query and dropping the fragment. It refuses "..",
+// which url.JoinPath would resolve out of the base path.
 func joinURL(baseURL, path string) (string, error) {
 	path, _, _ = strings.Cut(path, "#")
 	path, query, hasQuery := strings.Cut(path, "?")

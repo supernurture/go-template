@@ -14,6 +14,7 @@ import (
 	"github.com/supernurture/go-template/internal/api/server"
 	"github.com/supernurture/go-template/internal/config"
 	"github.com/supernurture/go-template/internal/container"
+	"github.com/supernurture/go-template/pkg/metrics"
 )
 
 const (
@@ -22,6 +23,9 @@ const (
 
 	readTimeout = 15 * time.Second
 	idleTimeout = 60 * time.Second
+
+	// A scrape is a few hundred series; slower than this is a stuck agent.
+	metricsWriteTimeout = 10 * time.Second
 
 	// Under docker stop's 10s grace period.
 	defaultShutdownTimeout = 8 * time.Second
@@ -71,13 +75,22 @@ func run(ctx context.Context) (err error) {
 		IdleTimeout:       idleTimeout,
 	}
 
+	serveErrCh := make(chan error, 2)
+	// Up before the API and closed after its drain, so the last scrapes still see it.
+	if deps.Metrics != nil {
+		metricsSrv, err := serveMetrics(cfg.Metrics.Port, deps, serveErrCh)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = metricsSrv.Close() }()
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	listener, err := listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 
-	serveErrCh := make(chan error, 1)
 	go func() {
 		if serveErr := srv.Serve(listener); !errors.Is(serveErr, http.ErrServerClosed) {
 			serveErrCh <- serveErr
@@ -108,4 +121,30 @@ func run(ctx context.Context) (err error) {
 	}
 
 	return nil
+}
+
+// serveMetrics serves GET /metrics on its own port until the returned server closes.
+func serveMetrics(port int, deps *container.Container, errCh chan<- error) (*http.Server, error) {
+	addr := fmt.Sprintf(":%d", port)
+	listener, err := listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen metrics %s: %w", addr, err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler(deps.Metrics))
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      metricsWriteTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+	go func() {
+		if serveErr := srv.Serve(listener); !errors.Is(serveErr, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("metrics: %w", serveErr)
+		}
+	}()
+	deps.Logger.Info("metrics listening", map[string]any{"addr": listener.Addr().String()})
+	return srv, nil
 }

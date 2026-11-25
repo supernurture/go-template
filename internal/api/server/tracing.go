@@ -16,8 +16,7 @@ func serverTracing(service string, provider trace.TracerProvider) gin.HandlerFun
 		otelgin.WithGinFilter(notProbe))
 }
 
-// notProbe keeps /health and /ready out of the traces: a probe every few seconds per pod would
-// outnumber real requests and says nothing a metric does not.
+// notProbe keeps /health and /ready out of traces: probes would outnumber real requests.
 func notProbe(c *gin.Context) bool {
 	path := c.Request.URL.Path
 	return path != "/health" && path != "/ready"

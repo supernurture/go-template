@@ -21,19 +21,18 @@ type Config struct {
 	ServiceName    string
 	ServiceVersion string
 	Env            string
-	// Endpoint is the collector's OTLP/HTTP base URL, e.g. http://localhost:4318; spans go to <Endpoint>/v1/traces.
-	// An http:// URL is sent without TLS. Empty leaves it to OTEL_EXPORTER_OTLP_ENDPOINT, else localhost:4318.
+	// Endpoint is the collector's OTLP/HTTP base URL; spans go to <Endpoint>/v1/traces, http:// without TLS.
+	// Empty falls back to OTEL_EXPORTER_OTLP_ENDPOINT, then localhost:4318.
 	Endpoint string
-	// SampleRatio is the share of new traces kept, 0 to 1. A request that arrives with a traceparent
-	// keeps its caller's decision instead, so one trace is never half recorded.
+	// SampleRatio is the share of new traces kept, 0 to 1; a caller's traceparent decision wins.
 	SampleRatio float64
 }
 
 // newExporter is a seam: otlptracehttp.New does not dial, so a test cannot make it fail otherwise.
 var newExporter = otlptracehttp.New
 
-// New builds a TracerProvider batching spans to the collector without dialing, so a collector that is
-// down drops spans rather than failing the start. Shutdown flushes what is still buffered.
+// New builds a TracerProvider that batches spans without dialing, so a down collector drops spans
+// rather than failing the start. Shutdown flushes the buffer.
 func New(ctx context.Context, cfg Config) (*sdktrace.TracerProvider, error) {
 	if cfg.SampleRatio < 0 || cfg.SampleRatio > 1 {
 		return nil, fmt.Errorf("sample ratio %v is outside 0..1", cfg.SampleRatio)
@@ -78,8 +77,8 @@ func Propagator() propagation.TextMapPropagator {
 	return propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{})
 }
 
-// LogFields is a logger.ContextFields hook adding the span's trace_id, span_id and trace_flags as the OTel
-// spec names them for non-OTLP logs, so a line links to its trace; a context without a span adds nothing.
+// LogFields is a logger.ContextFields hook adding trace_id, span_id and trace_flags, named as the OTel
+// spec asks of non-OTLP logs; nothing without a span.
 func LogFields(ctx context.Context) map[string]any {
 	sc := trace.SpanContextFromContext(ctx)
 	if !sc.IsValid() {

@@ -16,6 +16,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -24,6 +25,7 @@ import (
 	"github.com/supernurture/go-template/internal/container"
 	"github.com/supernurture/go-template/internal/middleware"
 	"github.com/supernurture/go-template/pkg/logger"
+	"github.com/supernurture/go-template/pkg/metrics"
 	"github.com/supernurture/go-template/pkg/redis"
 )
 
@@ -158,6 +160,37 @@ func TestNewRouter(t *testing.T) {
 		}
 	})
 
+	t.Run("positive: with metrics on, every request is counted by its route", func(t *testing.T) {
+		deps := newTestDeps(t)
+		deps.Metrics = metrics.NewRegistry()
+		router := newTestRouter(t, testConfig(), deps)
+		get(t, router, "/health")
+		get(t, router, "/health")
+
+		gathered, _ := deps.Metrics.Gather()
+		var count uint64
+		for _, family := range gathered {
+			if family.GetName() == "http_server_request_duration_seconds" {
+				for _, metric := range family.GetMetric() {
+					count += metric.GetHistogram().GetSampleCount()
+				}
+			}
+		}
+		if count != 2 {
+			t.Errorf("requests counted = %d, want 2", count)
+		}
+	})
+
+	t.Run("negative: request metrics that cannot register", func(t *testing.T) {
+		deps := newTestDeps(t)
+		deps.Metrics = metrics.NewRegistry()
+		deps.Metrics.MustRegister(prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "http_server_request_duration_seconds", Help: "Taken."}))
+		if _, err := NewRouter(testConfig(), deps); err == nil || !strings.Contains(err.Error(), "request metrics") {
+			t.Fatalf("NewRouter = %v, want the metrics failure", err)
+		}
+	})
+
 	t.Run("negative: an invalid trusted proxy", func(t *testing.T) {
 		cfg := testConfig()
 		cfg.Server.TrustedProxies = []string{"not-an-ip"}
@@ -230,7 +263,7 @@ func TestRegister(t *testing.T) {
 		wantResponse(t, get(t, router, "/ready"), http.StatusServiceUnavailable, `{"condition":"NotReady"}`)
 	})
 
-	// The handler's line and the access-log line share the ID the client sees, with no handler copying it.
+	// The handler's line and the access-log line share the client's ID, with no copying.
 	t.Run("negative: every line a failed readiness check writes carries the request ID", func(t *testing.T) {
 		deps, logged := newLoggedDeps(t)
 		withRedis(t, deps)
@@ -258,7 +291,7 @@ func TestRegister(t *testing.T) {
 }
 
 func TestInvalidParam(t *testing.T) {
-	// c.Errors would mark the trace span as failed for what is the caller's mistake.
+	// c.Errors would fail the span for the caller's mistake.
 	t.Run("positive: answers with the given status and records a reason, not an error", func(t *testing.T) {
 		c, rec := testContext(context.Background())
 		invalidParam(c, errors.New("Invalid format for parameter limit"), http.StatusBadRequest)
@@ -305,7 +338,7 @@ func TestBadRequest(t *testing.T) {
 		}
 	})
 
-	// The decoder's message names Go types, which says more about the server than the caller needs.
+	// The decoder's message names Go types, which the caller need not see.
 	t.Run("negative: a wrongly typed field leaks Go type names", func(t *testing.T) {
 		rec := postNote(t, testConfig(), `{"title":5}`)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Go struct field") {

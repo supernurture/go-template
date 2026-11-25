@@ -161,7 +161,7 @@ func TestCtxCaller(t *testing.T) {
 	}
 }
 
-// benchLogger writes to io.Discard through the real encoder, so the numbers are the logger's own cost.
+// benchLogger writes to io.Discard through the real encoder, timing the logger alone.
 func benchLogger(hooks []ContextFields) *Logger {
 	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig()), zapcore.AddSync(io.Discard), zapcore.InfoLevel)
 	return &Logger{zap: zap.New(core), ctxFields: hooks}

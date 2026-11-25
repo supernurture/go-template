@@ -11,7 +11,7 @@ docker compose up -d --wait   # PostgreSQL + Redis on the ports config.yaml expe
 make run
 ```
 
-The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs editing to get a running server. To see its traces and logs in Grafana as well, see [Tracing](#tracing). `--wait` matters on a fresh clone: the app pings every dependency at startup, and Postgres does not accept connections until it has run the schema below.
+The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs editing to get a running server. To see its traces and logs in Grafana as well, see [Observability](#observability). `--wait` matters on a fresh clone: the app pings every dependency at startup, and Postgres does not accept connections until it has run the schema below.
 
 ```bash
 curl localhost:8080/health
@@ -28,6 +28,9 @@ curl -X POST localhost:8080/example/notes -H 'Content-Type: application/json' \
 # {"id":1,"title":"First note","body":"...","created_at":"..."}   <- PostgreSQL
 
 curl 'localhost:8080/example/notes?limit=5'
+
+curl -s localhost:9464/metrics | grep '^http_server_request_duration_seconds_count'
+# ...{http_request_method="GET",http_response_status_code="200",http_route="/health"} 1   <- its own port
 ```
 
 Run `make help` for every target.
@@ -88,7 +91,7 @@ Every entry under `databases:` and `redis:` is opened **and pinged** at startup,
 
 `server.timeout` is the deadline a handler and everything it calls gets. The server's write timeout is derived from it, so raising one raises the other; keep every upstream `services.*.timeout` below it, or the request dies before the shorter deadline can fire.
 
-On SIGTERM the server stops accepting and waits `server.shutdown_timeout` (default 8s) for requests in flight — less the share tracing keeps to flush spans, when it is on. Keep it under your platform's grace period — 10s for `docker stop`, 30s by default on Kubernetes — or the process is killed mid-drain. A request running longer than it is cut off, so where the grace period allows, set it above `server.timeout`.
+On SIGTERM the server stops accepting and waits `server.shutdown_timeout` (default 8s) for requests in flight — less the share tracing keeps to flush spans, when it is on. `/metrics` keeps answering through the drain and closes after it, so the agent's last scrapes still see it. Keep it under your platform's grace period — 10s for `docker stop`, 30s by default on Kubernetes — or the process is killed mid-drain. A request running longer than it is cut off, so where the grace period allows, set it above `server.timeout`.
 
 ## Layout
 
@@ -100,23 +103,22 @@ internal/api/server/   Router, generated contracts, module handlers
 internal/config/       Config structs, loading, validation
 internal/container/    Opens every configured dependency; Close unwinds in reverse
 internal/httpclient/   The app's configured upstream clients
-internal/middleware/   Request ID, access log, recovery, timeout, security headers, CORS, body limit
+internal/middleware/   Request ID, access log, recovery, timeout, security headers, CORS, body limit, request metrics
 internal/pkg/          App-specific helpers, not meant to be lifted out
-pkg/                   Reusable, app-agnostic: database, redis, logger, tracing, httpclient, util
-deploy/observability/  Grafana dashboard and Alloy config for compose's observability profile
+pkg/                   Reusable, app-agnostic: database, redis, logger, tracing, metrics, httpclient, util
 ```
 
 `internal/` is app-specific and free to change; `pkg/` is meant to be lifted into other services.
 
 ### Dependencies
 
-`container.NewContainer` opens everything in `config.yaml` and registers a shutdown hook per connection, plus one that flushes spans when tracing is on. `Close` runs them in reverse so the logger outlives anything that might log while closing, and the flush comes after every connection it traced. If one dependency fails to open, the ones already open are closed before the error is returned.
+`container.NewContainer` opens everything in `config.yaml` and registers a shutdown hook per connection — and, with `metrics.enabled`, exports each one's pool — plus one that flushes spans when tracing is on and one that gives the standard library's `log` back (see [Observability](#observability)). `Close` runs them in reverse so the logger outlives anything that might log while closing, and the flush comes after every connection it traced. If one dependency fails to open, the failure is logged as a `start failed` ERROR and the ones already open are closed before the error is returned.
 
 Handlers receive what they need through their constructor — they never see the container.
 
 ## Requests
 
-Every request passes through `middleware.Default`: request ID, access log, panic recovery, timeout, security headers, CORS, and a body-size limit. `ContextWithFallback` is on, so the `context.Context` a handler receives carries the timeout deadline — pass it to every database, cache, and HTTP call and a stalled dependency cannot outlive the request.
+Every request passes through `middleware.Default`: request ID, access log, panic recovery, timeout, security headers, CORS, and a body-size limit. Outside it, in this order, come the tracing span when `tracing.enabled` and `middleware.Metrics` when `metrics.enabled`, so both see the 500 a recovered panic becomes. `ContextWithFallback` is on, so the `context.Context` a handler receives carries the timeout deadline — pass it to every database, cache, and HTTP call and a stalled dependency cannot outlive the request.
 
 That same context carries the request ID. Log with the `*Ctx` methods — `log.InfoCtx(ctx, "note created", fields)` — and the line gets `request_id` without the handler copying it, so it lands next to the access-log line for the same request; `modules/example/handler.go` does this after storing a note. The logger gets the ID from the `middleware.LogFields` hook that `container.newLogger` installs through `logger.Config.ContextFields`; a key you pass in `fields` wins over the hook's. Use the plain `Info`/`Warn` methods only for lines outside a request, such as startup. `middleware.RequestIDFrom(ctx)` still returns the ID when you need it for something other than a log line. With tracing on, the same lines also get `trace_id` and `span_id` — see below.
 
@@ -124,7 +126,7 @@ That same context carries the request ID. Log with the `*Ctx` methods — `log.I
 
 ## Tracing
 
-Off by default. Set `tracing.enabled: true` and point `tracing.endpoint` at an OTLP/HTTP collector — Grafana Alloy, Tempo, or Jaeger — and every request becomes a trace:
+Off by default. Set `tracing.enabled: true` and every request becomes a trace, sent over OTLP/HTTP to `tracing.endpoint` — the Alloy agent on the same host, `http://localhost:4318` by default (see [Observability](#observability)):
 
 | Span | From | Carries |
 | --- | --- | --- |
@@ -147,27 +149,51 @@ A collector that is down never stops the app. The batch it cannot take is droppe
 
 Cost, from `BenchmarkTracing` on `/example/visits` with Redis answered in-process: off adds nothing; on adds about 5µs of CPU and 43 allocations to a 5µs request at a 10% ratio, and about 10µs at 100%. Most of it is paid whether or not the trace is kept, so a lower ratio saves export work more than request time. Tracing takes no lock of its own: in parallel it scales as well as the untraced request does. Spans are queued and exported in the background, so a slow collector costs dropped spans, never request latency. One instance exports about 130k spans a second; on the benchmark machine that drops spans above roughly 65k requests a second at 100%, and nothing at 10%. The binary grows by about 6 MB.
 
-### Locally, in Grafana
+## Observability
 
-```bash
-docker compose --profile observability up -d --wait   # Postgres, Redis, Grafana LGTM, Alloy
-# configs/config.yaml: tracing.enabled: true (the endpoint already points at it)
-make run
-```
+The Grafana stack — Tempo, Loki, Mimir, Grafana and the dashboards — is not part of this repo: it lives in **observability-stack**, shared by every system. It follows Grafana's agent pattern: one Alloy agent on every host that runs services, collecting next to the app and pushing to the central stack, so the stack never has to reach a service. The service only produces the signals:
 
-Open http://localhost:3000/d/go-template-overview — no login: the image makes every visitor an Admin, which is why compose publishes its ports on loopback only. `grafana/otel-lgtm` is Grafana, Tempo, Loki and Prometheus in one container; Alloy tails the log files under `./logs` into Loki, so `logger.disable_file` must stay `false`. Prometheus, at http://localhost:9090, holds the rate, error and duration metrics Tempo derives from the spans — the app exports no metrics of its own yet. Nothing is persisted: `docker compose --profile observability down` drops it all.
+| Signal | The service | The host's Alloy agent |
+| --- | --- | --- |
+| Traces | pushes OTLP/HTTP to `tracing.endpoint` (`localhost:4318`) | forwards them to Tempo |
+| Logs | writes JSON lines: to stderr in a container, to files under `logger.path` on a host | reads them (container output through Docker, or the files), forwards to Loki |
+| Metrics | serves Prometheus `/metrics` on `metrics.port` (9464), apart from the API | scrapes it, forwards to Mimir |
 
-The dashboard, `deploy/observability/grafana/go-template.json`, has three rows:
+Logs are collected, not pushed, so a line survives an agent or stack that is down — Docker or the file holds it until it is read — and in a container, output the logger never wrote, such as a crash on stderr, is caught with the rest. What the agent relies on in each line:
 
-| Row | Shows |
+| Field | Becomes in Loki |
 | --- | --- |
-| Overview | Requests/s, error ratio, p95, 5xx from the access log; throughput, latency and errors per route; HTTP status codes; Postgres and Redis calls; the service graph |
-| Logs | Volume by level, the paths failing most often, and the lines themselves, each linking to its trace |
-| Traces | Recent and error traces, the slowest queries, and one trace by ID |
+| `application_name` | the `service_name` label, matching the `service.name` the spans carry, so a trace links to its lines |
+| `level` | the `level` label |
+| `timestamp` | the line's time, not the moment the agent read it. Go layout `2006-01-02T15:04:05.000Z0700`: on a host outside UTC the offset has no colon (`+0700`), so it is not RFC 3339 |
+| `trace_id`, `span_id`, `request_id` | structured metadata, not labels: unique per request, each would start a stream of its own |
+| `method`, `path`, `status` (access log) | parsed at query time, for the dashboards' per-route panels |
 
-The boxes along the top filter every panel they apply to: route, log level and minimum duration, plus free-text search over log lines, `trace_id` (which also opens that trace) and `request_id`. Edits made in Grafana survive until the container is recreated; export the dashboard over `go-template.json` to keep them. Its datasources are variables, so the same file imports into any Grafana with a Prometheus, Loki and Tempo.
+Keep those names when changing the logger; observability-stack's agent config is written against them.
 
-The error ratio counts server spans in status ERROR: a 5xx, or a request whose handler called `c.Error`. A 4xx leaves the span unset, as the HTTP conventions ask, so record why a request was refused with `middleware.Reject` rather than `c.Error`; `invalidParam`, `badRequest` and the example handlers do.
+Every line the app logs is JSON, including what `pkg/database`, `pkg/redis` and GORM report through the standard library's `log`: `container.NewContainer` redirects it into the logger (`logger.RedirectStdLog`) before anything opens, and `Close` puts it back. A message starting `warning: ` — the cleartext-connection notices, GORM's slow queries and errors — becomes a WARN, the rest INFO. Without it those lines would reach Loki without a `service_name`, and on a host, where the agent reads only the files, not at all. The one plain-text line is `main`'s on stderr when the start fails: before the logger exists — an unreadable config — it is the only record; after, the same failure is also in the JSON log as `start failed`.
+
+Locally, run observability-stack's stack and agent on your machine: the agent listens on `localhost:4318`, which `tracing.endpoint` already points at, scrapes `localhost:9464/metrics`, and tails the files under `./logs`, so `logger.disable_file` must stay `false` while the app runs through `make run`. Then set `tracing.enabled: true`.
+
+Where a dashboard takes its error ratio from spans rather than `http_server_request_duration_seconds`, it counts server spans in status ERROR: a 5xx, or a request whose handler called `c.Error`. A 4xx leaves the span unset, as the HTTP conventions ask, so record why a request was refused with `middleware.Reject` rather than `c.Error`; `invalidParam`, `badRequest` and the example handlers do.
+
+### Metrics
+
+With `metrics.enabled` (on in `config.example.yaml`: a scrape needs nothing running), `GET /metrics` answers on `metrics.port`, a port of its own:
+
+| Series | From | Labels |
+| --- | --- | --- |
+| `http_server_request_duration_seconds` (histogram), `http_server_active_requests` | `middleware.Metrics`, mounted after tracing and before `middleware.Default` | `http_request_method`, `http_route` (the template, `/notes/:id`; `""` when no route matched), `http_response_status_code` |
+| `go_sql_*` — open, idle and in-use connections, waits | every `databases:` pool | `db_name`: `postgres/<name>`, `sql_server/<name>` |
+| `go_redis_pool_*` — hits, misses, timeouts, connections | every `redis:` client | `db_name`: `redis/<name>` |
+| `go_*`, `process_*` | the Go runtime and the process: goroutines, heap, GC, CPU, memory, file descriptors | — |
+| `promhttp_metric_handler_*` | the scrapes themselves | `code` |
+
+The names, labels and buckets are the OpenTelemetry HTTP conventions', so a service in another language lines up on the same dashboard; `db_name` is the key `/ready` reports a check by. Every label is bounded — an unknown method is `_OTHER`, a path never becomes a label — so a scanner cannot multiply the series.
+
+Unlike the rates Tempo derives from spans, these count every request whatever `tracing.sample_ratio` keeps, so use them for request rate, errors and latency. A sampled request's bucket carries its `trace_id` as an exemplar, served when the scraper asks for OpenMetrics, so a point on a latency panel opens its trace. The series carry no service name: the agent adds it as a target label when it scrapes, as it does `service_name` for logs.
+
+The port is for the agent only. It describes the service's insides, so never publish it: `make docker-run` maps only the API's port, and in compose leave it off `ports:` and let the agent reach it on the shared network. Cost, from `BenchmarkMetrics`: about 0.4µs and 5 allocations a request.
 
 ## Make targets
 
@@ -188,7 +214,7 @@ The error ratio counts server spans in status ERROR: a 5xx, or a request whose h
 
 `docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Compose publishes Postgres and Redis on `127.0.0.1` only, so join the compose network and point the hosts at the service names (`docker run --network go-template_default …`, compose naming it after the folder; hosts `postgres` and `redis`); `host.docker.internal` reaches them on Docker Desktop but not on Linux.
 
-In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the platform to collect, and nothing is written inside the image. It is also faster under load: the log file takes a lock and a write per line, which caps one instance at around 130k requests a second however many cores it has (`BenchmarkLogFile`).
+In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the host's Alloy agent to collect, and nothing is written inside the image. Point `tracing.endpoint` at the agent too: `localhost` is the container itself, so use the agent's name on a Docker network they share (`TRACING_ENDPOINT=http://alloy:4318`). It is also faster under load: the log file takes a lock and a write per line, which caps one instance at around 130k requests a second however many cores it has (`BenchmarkLogFile`).
 
 ## Requirements
 

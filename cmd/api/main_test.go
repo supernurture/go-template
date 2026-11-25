@@ -66,7 +66,16 @@ func freePort(t *testing.T) (int, net.Listener) {
 	return addr.Port, listener
 }
 
-// configOnFreePort writes a valid config for a port nothing is listening on, and returns the port.
+// freePorts returns two free ports, for the API and /metrics.
+func freePorts(t *testing.T) (api, metrics int) {
+	t.Helper()
+	api, first := freePort(t)
+	metrics, second := freePort(t)
+	_, _ = first.Close(), second.Close()
+	return api, metrics
+}
+
+// configOnFreePort writes a valid config on a free port and returns the port.
 func configOnFreePort(t *testing.T) int {
 	t.Helper()
 	port, listener := freePort(t)
@@ -211,6 +220,98 @@ func TestRun(t *testing.T) {
 		}
 	})
 
+	t.Run("positive: with metrics on, /metrics is served on its own port, apart from the API", func(t *testing.T) {
+		port, metricsPort := freePorts(t)
+		writeConfig(t, validConfig(port)+fmt.Sprintf("metrics:\n  enabled: true\n  port: %d\n", metricsPort))
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- run(ctx) }()
+		_ = getHealth(t, port).Body.Close()
+
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort))
+		if err != nil {
+			t.Fatalf("GET /metrics: %v", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		for _, want := range []string{"go_goroutines ", `http_server_request_duration_seconds_count{` +
+			`http_request_method="GET",http_response_status_code="200",http_route="/health"} 1`} {
+			if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), want) {
+				t.Errorf("GET /metrics = %d, want %s in it", resp.StatusCode, want)
+			}
+		}
+		if api, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port)); err != nil ||
+			api.StatusCode != http.StatusNotFound {
+			t.Errorf("API port /metrics = %v, %v; want 404: the API never serves it", api, err)
+		} else {
+			_ = api.Body.Close()
+		}
+
+		cancel()
+		if err := waitFor(t, done); err != nil {
+			t.Errorf("run returned %v, want a clean shutdown", err)
+		}
+		if _, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort)); err == nil {
+			t.Error("/metrics still answers after run returned")
+		}
+	})
+
+	t.Run("positive: /metrics keeps answering while the API drains", func(t *testing.T) {
+		port, metricsPort := freePorts(t)
+		const timeout = "  timeout: 5s\n"
+		writeConfig(t, strings.Replace(validConfig(port), timeout, timeout+"  shutdown_timeout: 1s\n", 1)+
+			fmt.Sprintf("metrics:\n  enabled: true\n  port: %d\n", metricsPort))
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- run(ctx) }()
+		_ = getHealth(t, port).Body.Close()
+
+		// A connection that never sends a request holds the drain open until its deadline.
+		conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer func() { _ = conn.Close() }()
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+		time.Sleep(200 * time.Millisecond) // well inside the 1s drain
+
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", metricsPort))
+		if err != nil {
+			t.Fatalf("GET /metrics during the drain: %v", err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET /metrics during the drain = %d, want 200", resp.StatusCode)
+		}
+		wantRunError(t, waitFor(t, done), "shutdown server")
+	})
+
+	t.Run("negative: metrics port already in use", func(t *testing.T) {
+		port, metricsPort := freePorts(t)
+		taken, err := net.Listen("tcp", fmt.Sprintf(":%d", metricsPort))
+		if err != nil {
+			t.Fatalf("listen: %v", err)
+		}
+		defer func() { _ = taken.Close() }()
+		writeConfig(t, validConfig(port)+fmt.Sprintf("metrics:\n  enabled: true\n  port: %d\n", metricsPort))
+		wantRunError(t, run(context.Background()), "listen metrics")
+	})
+
+	t.Run("negative: serving metrics fails", func(t *testing.T) {
+		port, metricsPort := freePorts(t)
+		writeConfig(t, validConfig(port)+fmt.Sprintf("metrics:\n  enabled: true\n  port: %d\n", metricsPort))
+		metricsAddr := fmt.Sprintf(":%d", metricsPort)
+		swap(t, &listen, func(network, addr string) (net.Listener, error) {
+			l, err := net.Listen(network, addr)
+			if err == nil && addr == metricsAddr {
+				_ = l.Close() // Serve fails at once on a closed listener
+			}
+			return l, err
+		})
+		wantRunError(t, run(context.Background()), "serve: metrics")
+	})
+
 	t.Run("negative: missing config", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		wantRunError(t, run(context.Background()), "config.yaml")
@@ -310,7 +411,7 @@ func TestRun(t *testing.T) {
 		start := time.Now()
 		cancel()
 		wantRunError(t, waitFor(t, done), "shutdown server")
-		// 1.5s of drain; the full 2s would leave the flush nothing and overrun the budget.
+		// 1.5s of drain; the full 2s would leave the flush nothing.
 		if took := time.Since(start); took < 1500*time.Millisecond || took >= 1900*time.Millisecond {
 			t.Errorf("shutdown took %v, want the drain cut to about 1.5s", took)
 		}

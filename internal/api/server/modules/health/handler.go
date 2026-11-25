@@ -15,12 +15,11 @@ type Handler struct {
 	log    *logger.Logger
 }
 
-// NewHandler takes readiness checks keyed by dependency name, as from container.Pings.
+// NewHandler takes readiness checks keyed by dependency name, as container.Pings returns them.
 func NewHandler(checks map[string]func(context.Context) error, log *logger.Logger) *Handler {
 	return &Handler{checks: checks, log: log}
 }
 
-// checkTimeout caps each readiness check.
 var checkTimeout = 2 * time.Second
 
 var _ healthcontract.StrictServerInterface = (*Handler)(nil)
@@ -47,7 +46,7 @@ func (h *Handler) GetReady(
 			defer cancel()
 
 			res := result{name: name}
-			// Recovery cannot reach this goroutine, so an unrecovered panic here would kill the process.
+			// Recovery cannot reach this goroutine; a panic here would kill the process.
 			defer func() {
 				if p := recover(); p != nil {
 					res.err = fmt.Errorf("check panicked: %v", p)

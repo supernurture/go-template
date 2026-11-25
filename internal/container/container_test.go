@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,7 +45,7 @@ func mockGorm(t *testing.T, monitorPings bool) (*gorm.DB, sqlmock.Sqlmock) {
 
 func brokenGorm() *gorm.DB { return &gorm.DB{Config: &gorm.Config{}} }
 
-// stubOpeners replaces the openers with fakes that record the pool settings they were given.
+// stubOpeners swaps the openers for fakes that record their pool settings.
 func stubOpeners(t *testing.T) (*database.PoolConfig, *redis.PoolConfig) {
 	t.Helper()
 	var dbPool database.PoolConfig
@@ -140,6 +141,14 @@ func TestNewContainer(t *testing.T) {
 				if _, err := NewContainer(cfg); err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("error = %v, want it to name %s", err, want)
 				}
+				// In the JSON log too, for an agent reading only the file.
+				files, _ := filepath.Glob(filepath.Join(cfg.Logger.Path, cfg.App.Name, "app-*.log"))
+				written, _ := os.ReadFile(files[0])
+				line := string(written)
+				if !strings.Contains(line, `"level":"ERROR"`) || !strings.Contains(line, `"message":"start failed"`) ||
+					!strings.Contains(line, strings.ReplaceAll(want, `"`, `\"`)) {
+					t.Errorf("log = %s, want the failure as an ERROR naming %s", line, want)
+				}
 			})
 		}
 	})
@@ -176,7 +185,7 @@ func TestClose(t *testing.T) {
 		}
 	})
 
-	// Hooks are kept after Close, so a second Close runs them again and Redis reports it is closed.
+	// Hooks survive Close, so a second Close reruns them and Redis reports it is closed.
 	t.Run("negative: closing twice is a no-op", func(t *testing.T) {
 		stubOpeners(t)
 		cfg := testConfig(t)
@@ -262,7 +271,7 @@ func TestOpen(t *testing.T) {
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), `sql server "legacy"`) {
 			t.Errorf("open = %v, want the wrapped sql server failure", err)
 		}
-		// Postgres opened first, so its hook must be registered for NewContainer to close it.
+		// Postgres opened first, so its hook must be there for NewContainer to close it.
 		if len(c.shutdowns) != 1 || c.Redis["cache"] != nil {
 			t.Errorf("hooks = %d, redis = %v; want postgres' hook kept, redis never opened",
 				len(c.shutdowns), c.Redis)
@@ -282,7 +291,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestOpenTraced(t *testing.T) {
-	// Each failure must leave the connection's close hook registered, so NewContainer closes it.
+	// Each failure must leave the connection's close hook, so NewContainer closes it.
 	t.Run("negative: instrumentation failure is wrapped with the dependency name", func(t *testing.T) {
 		boom := errors.New("boom")
 		tests := map[string]func(t *testing.T){
@@ -345,6 +354,36 @@ func openRegistered(t *testing.T) opener {
 	}
 }
 
+func TestNewContainerStdLog(t *testing.T) {
+	t.Run("positive: standard log lines join the JSON log until Close", func(t *testing.T) {
+		var after strings.Builder
+		previous := log.Writer()
+		t.Cleanup(func() { log.SetOutput(previous) })
+		log.SetOutput(&after)
+
+		cfg := testConfig(t)
+		c, err := NewContainer(cfg)
+		if err != nil {
+			t.Fatalf("NewContainer: %v", err)
+		}
+		log.Print("warning: Redis connection to cache:6379 is not encrypted")
+		if err := c.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		log.Print("after close")
+
+		files, _ := filepath.Glob(filepath.Join(cfg.Logger.Path, cfg.App.Name, "app-*.log"))
+		written, _ := os.ReadFile(files[0])
+		if !strings.Contains(string(written), `"level":"WARN"`) ||
+			!strings.Contains(string(written), `"message":"Redis connection to cache:6379 is not encrypted"`) {
+			t.Errorf("log = %s, want the standard log warning as a JSON WARN", written)
+		}
+		if !strings.Contains(after.String(), "after close") || strings.Contains(string(written), "after close") {
+			t.Errorf("standard log after Close = %q; want it restored, off the closed logger", after.String())
+		}
+	})
+}
+
 func TestNewLogger(t *testing.T) {
 	t.Run("positive: builds a logger from config", func(t *testing.T) {
 		cfg := testConfig(t)
@@ -359,7 +398,7 @@ func TestNewLogger(t *testing.T) {
 		}
 	})
 
-	// Without this hook every handler would have to copy the request ID into its fields again.
+	// Without this hook every handler would copy the request ID itself.
 	t.Run("positive: a *Ctx line carries the request ID", func(t *testing.T) {
 		cfg := testConfig(t)
 		log, err := newLogger(cfg)

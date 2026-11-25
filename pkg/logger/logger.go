@@ -32,8 +32,7 @@ type Config struct {
 	Console      bool // also write JSON logs to stderr
 	DisableFile  bool // stderr only; needs Console
 	Rotation     RotationOptions
-	// ContextFields run on every *Ctx call and put what the context carries (a request ID, a trace
-	// ID) on the line, so callers never copy those fields by hand. Leave nil for none.
+	// ContextFields put what the context carries, such as the request ID, on every *Ctx line.
 	ContextFields []ContextFields
 }
 
@@ -142,7 +141,7 @@ func zapFields(fields map[string]any) []zap.Field {
 
 func openFile(cfg Config) (*rotatelogs.RotateLogs, error) {
 	if cfg.Path == "" {
-		cfg.Path = "./logs" // default log path
+		cfg.Path = "./logs"
 	}
 
 	dir := filepath.Join(cfg.Path, cfg.ServiceName)

@@ -4,12 +4,12 @@ app:
   env: development # development, staging, or production; only production sends HSTS
 
 server:
-  mode: debug # test, debug, or release; release drops gin's route dump and startup warnings
+  mode: debug # test, debug, or release; release drops gin's route dump
   port: 8080
-  timeout: 30s # deadline for a handler and everything it calls; the write timeout is this plus 5s
-  shutdown_timeout: 8s # whole exit on SIGTERM, span flush included; keep under the platform grace period
-  cors_origins: [] # e.g. ["https://app.example.com"]; empty grants no browser origin, ["*"] rules out cookies
-  trusted_proxies: [] # e.g. ["10.0.0.0/8"]; empty trusts only the direct peer for client IPs
+  timeout: 30s # deadline for a handler and its calls; write timeout is this plus 5s
+  shutdown_timeout: 8s # whole exit on SIGTERM, span flush included; under the platform grace period
+  cors_origins: [] # empty allows no browser origin; ["*"] rules out cookies
+  trusted_proxies: [] # e.g. ["10.0.0.0/8"]; empty trusts only the direct peer
   max_body_bytes: 1048576 # 1 MiB; 0 uses the middleware default
 
 databases:
@@ -21,9 +21,9 @@ databases:
       password: postgres
       database: example
       opts: sslmode=disable # sslmode=require in production
-      max_open_conns: 25 # 0 means unlimited, which lets a traffic spike exhaust the database
-      max_idle_conns: 5 # set far below max_open_conns and the pool reopens connections under load
-      conn_max_lifetime: 30m # recycles connections, so a failover or rotated credential is picked up
+      max_open_conns: 25 # 0 is unlimited: a spike can exhaust the database
+      max_idle_conns: 5 # far below max_open_conns, the pool reconnects under load
+      conn_max_lifetime: 30m # recycling picks up a failover or rotated credential
   # sql_server:
   #   example:
   #     host: localhost
@@ -45,7 +45,7 @@ redis:
     db: 0
     tls: false # true for managed Redis with in-transit encryption
     pool_size: 0 # 0 keeps the driver default
-    min_idle_conns: 0 # 0 opens nothing ahead of time; raise it to spare the first request a handshake
+    min_idle_conns: 0 # raise it to spare the first request a handshake
     conn_max_lifetime: 30m
 
 # Upstream HTTP services
@@ -54,7 +54,7 @@ services:
     base_url: https://api.example.com
     endpoints:
       inquiry: /v1/inquiry
-    timeout: 10s # keep it under server.timeout, or the request dies before this ever fires
+    timeout: 10s # under server.timeout, or it never fires
     auth:
       user:
       password:
@@ -64,12 +64,17 @@ logger:
   level: INFO # DEBUG, INFO, WARN, or ERROR
   rotation_pattern: daily # daily, or size-based via rotation_size_mb
   rotation_size_mb: 20 # only consulted when rotation_pattern is not daily
-  retention_days: 1 # enough for local work; production usually wants weeks
+  retention_days: 1 # production usually wants weeks
   console: true # also print JSON logs to stderr
   disable_file: false # true logs to stderr only; needs console
 
-# OpenTelemetry traces over OTLP/HTTP. A *Ctx log line inside a traced request gets trace_id, span_id, trace_flags.
+# OpenTelemetry traces over OTLP/HTTP; *Ctx lines in a traced request get trace_id and span_id.
 tracing:
   enabled: false
-  endpoint: http://localhost:4318 # collector base URL (Alloy, Tempo, Jaeger); empty: OTEL_EXPORTER_OTLP_ENDPOINT
-  sample_ratio: 1.0 # share of new traces kept, 0 to 1; production usually wants 0.1 or less
+  endpoint: http://localhost:4318 # the Alloy agent on this host; empty: OTEL_EXPORTER_OTLP_ENDPOINT
+  sample_ratio: 1.0 # share of new traces kept, 0 to 1; production usually 0.1 or less
+
+# Prometheus /metrics for the host's Alloy agent: runtime, process, pools, HTTP.
+metrics:
+  enabled: true
+  port: 9464 # apart from server.port; for the agent only, never published

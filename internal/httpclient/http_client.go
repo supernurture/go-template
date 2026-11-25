@@ -19,8 +19,8 @@ type HTTPClient struct {
 	Example *httpclient.Client
 }
 
-// NewHTTPClient builds every upstream HTTP client from config. A non-nil provider gives each call a
-// client span and sends the traceparent header, so the upstream's spans join the caller's trace.
+// NewHTTPClient builds every upstream client from config. A non-nil provider traces each call and
+// sends traceparent, so the upstream joins the trace.
 func NewHTTPClient(cfg *config.Config, log *logger.Logger, provider trace.TracerProvider) *HTTPClient {
 	return &HTTPClient{
 		Example: newExampleClient(cfg, log, provider),
@@ -44,7 +44,7 @@ func newExampleClient(cfg *config.Config, log *logger.Logger, provider trace.Tra
 		httpclient.WithTimeout(example.Timeout),
 		httpclient.WithBaseURL(example.BaseURL),
 	}
-	// Setting it unconditionally would send an empty Authorization header on every request.
+	// Unconditionally, every request would send an empty Authorization header.
 	if auth := util.GenerateBasicAuth(example.Auth.User, example.Auth.Password); auth != "" {
 		opts = append(opts, httpclient.WithHeader("Authorization", auth))
 	}

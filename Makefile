@@ -10,7 +10,7 @@ PORT  ?= 8080
 
 # Pinned so local and CI agree.
 GOLANGCI_VERSION ?= 2.14.0
-# go run, not a go.mod tool, which would upgrade the app's golang.org/x deps.
+# go run, not a go.mod tool, which would bump the app's golang.org/x deps.
 GOVULNCHECK_VERSION ?= 1.8.0
 
 .PHONY: help run test cover cover-gaps vet lint lint-install vuln fmt check tidy build build-all clean oapicodegen docker-build docker-run
@@ -28,8 +28,8 @@ test: ## Run tests with race detector
 # Generated contracts are excluded: `make oapicodegen` overwrites any fix made there.
 COVERPKG = $(shell go list ./... | grep -v oapicodegen | paste -sd,)
 
-# -coverpkg credits code reached from other packages' tests; sed drops the noisy per-package figures.
-# pipefail goes inline because make 3.81 ignores .SHELLFLAGS and would hide a failure.
+# -coverpkg credits code reached from other packages' tests; sed drops per-package figures.
+# pipefail is inline because make 3.81 ignores .SHELLFLAGS.
 COVERTEST = set -o pipefail; go test -coverpkg=$(COVERPKG) -coverprofile=coverage.out ./... | sed 's/coverage:.*//'
 
 cover: ## Run tests and open coverage report

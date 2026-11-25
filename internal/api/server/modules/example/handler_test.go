@@ -37,7 +37,7 @@ func ginContext() *gin.Context {
 	return c
 }
 
-// wantReason checks middleware.Reject saw reason, without depending on the key it stores it under.
+// wantReason checks middleware.Reject saw reason, whatever key it stores it under.
 func wantReason(t *testing.T, c *gin.Context, reason string) {
 	t.Helper()
 	for _, value := range c.Keys {
@@ -72,7 +72,7 @@ func TestNewHandler(t *testing.T) {
 		mustPanic(t, "NewHandler(nil, log)", func() { NewHandler(nil, testLogger(t)) })
 	})
 
-	// Failing here, before any request, means a note can no longer be committed and then answered with a 500.
+	// Failing at wiring means a note can never be committed and then answered with a 500.
 	t.Run("negative: a nil logger panics at wiring", func(t *testing.T) {
 		mustPanic(t, "NewHandler(service, nil)", func() { NewHandler(nilService(), nil) })
 	})

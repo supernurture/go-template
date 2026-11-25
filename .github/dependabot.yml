@@ -3,26 +3,27 @@ updates:
   - package-ecosystem: gomod
     directory: /
     target-branch: development
-    # Let a freshly published version sit a week before we pick it up.
+    # A new release waits a week first.
     cooldown:
       default-days: 7
     schedule:
       interval: weekly
-    # Conventional commits: the Review workflow's commitlint fails anything else.
+    # The Review workflow's commitlint wants conventional commits.
     commit-message:
       prefix: chore
       include: scope
-    # Released in lockstep: bumped one PR at a time, a module pins its siblings at the old
-    # version and the build breaks, or tidy fails, until the rest follow.
+    # Released in lockstep: bumped one at a time, a module pins its siblings at the old version and breaks the build.
     groups:
       opentelemetry:
         patterns: ["go.opentelemetry.io/*"]
       go-redis:
         patterns: ["github.com/redis/go-redis/*"]
+      prometheus:
+        patterns: ["github.com/prometheus/*"]
   - package-ecosystem: github-actions
     directory: /
     target-branch: development
-    # Let a freshly published version sit a week before we pick it up.
+    # A new release waits a week first.
     cooldown:
       default-days: 7
     schedule:
