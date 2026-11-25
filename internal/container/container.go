@@ -48,17 +48,18 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 
 		shutdowns: []func() error{log.Close},
 	}
+	// Before anything opens, so the connection notices and GORM's warnings land in the JSON log too.
+	restoreStdLog := log.RedirectStdLog()
+	deps.shutdowns = append(deps.shutdowns, func() error { restoreStdLog(); return nil })
 
 	// Tracing opens before anything it instruments, so Close flushes spans after those are closed.
 	if err := deps.openTracing(cfg); err != nil {
-		_ = deps.Close()
-		return nil, err
+		return nil, deps.abort(err)
 	}
 	deps.HTTPClient = httpclient.NewHTTPClient(cfg, log, deps.TracerProvider)
 
 	if err := deps.open(cfg); err != nil {
-		_ = deps.Close()
-		return nil, err
+		return nil, deps.abort(err)
 	}
 
 	return deps, nil
@@ -88,6 +89,14 @@ func (c *Container) Pings() map[string]func(context.Context) error {
 		checks["redis/"+name] = func(ctx context.Context) error { return client.Ping(ctx).Err() }
 	}
 	return checks
+}
+
+// abort logs why the start failed while the logger is still open, so the reason reaches the JSON log a
+// log agent reads, not only main's plain stderr line, then unwinds what opened.
+func (c *Container) abort(err error) error {
+	c.Logger.Error("start failed", map[string]any{"error": err.Error()})
+	_ = c.Close()
+	return err
 }
 
 var (

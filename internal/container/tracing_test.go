@@ -121,8 +121,8 @@ func TestOpenTracing(t *testing.T) {
 			t.Fatalf("NewContainer: %v", err)
 		}
 		defer c.Close()
-		if c.TracerProvider != nil || otel.GetTracerProvider() != before || len(c.shutdowns) != 1 {
-			t.Errorf("provider = %v, hooks = %d; want no provider, the global untouched, the logger's hook only",
+		if c.TracerProvider != nil || otel.GetTracerProvider() != before || len(c.shutdowns) != 2 {
+			t.Errorf("provider = %v, hooks = %d; want no provider, the global untouched, the logger's hooks only",
 				c.TracerProvider, len(c.shutdowns))
 		}
 	})

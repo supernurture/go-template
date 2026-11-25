@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -139,6 +140,14 @@ func TestNewContainer(t *testing.T) {
 				configure(cfg)
 				if _, err := NewContainer(cfg); err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("error = %v, want it to name %s", err, want)
+				}
+				// The reason is in the JSON log too, for an agent that reads only the file.
+				files, _ := filepath.Glob(filepath.Join(cfg.Logger.Path, cfg.App.Name, "app-*.log"))
+				written, _ := os.ReadFile(files[0])
+				line := string(written)
+				if !strings.Contains(line, `"level":"ERROR"`) || !strings.Contains(line, `"message":"start failed"`) ||
+					!strings.Contains(line, strings.ReplaceAll(want, `"`, `\"`)) {
+					t.Errorf("log = %s, want the failure as an ERROR naming %s", line, want)
 				}
 			})
 		}
@@ -343,6 +352,36 @@ func openRegistered(t *testing.T) opener {
 		}
 		return db, nil
 	}
+}
+
+func TestNewContainerStdLog(t *testing.T) {
+	t.Run("positive: standard log lines join the JSON log until Close", func(t *testing.T) {
+		var after strings.Builder
+		previous := log.Writer()
+		t.Cleanup(func() { log.SetOutput(previous) })
+		log.SetOutput(&after)
+
+		cfg := testConfig(t)
+		c, err := NewContainer(cfg)
+		if err != nil {
+			t.Fatalf("NewContainer: %v", err)
+		}
+		log.Print("warning: Redis connection to cache:6379 is not encrypted")
+		if err := c.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+		log.Print("after close")
+
+		files, _ := filepath.Glob(filepath.Join(cfg.Logger.Path, cfg.App.Name, "app-*.log"))
+		written, _ := os.ReadFile(files[0])
+		if !strings.Contains(string(written), `"level":"WARN"`) ||
+			!strings.Contains(string(written), `"message":"Redis connection to cache:6379 is not encrypted"`) {
+			t.Errorf("log = %s, want the standard log warning as a JSON WARN", written)
+		}
+		if !strings.Contains(after.String(), "after close") || strings.Contains(string(written), "after close") {
+			t.Errorf("standard log after Close = %q; want it restored, off the closed logger", after.String())
+		}
+	})
 }
 
 func TestNewLogger(t *testing.T) {

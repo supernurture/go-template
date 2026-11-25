@@ -11,7 +11,7 @@ import (
 )
 
 var gormLogger = logger.New(
-	log.New(log.Writer(), "\r\n", log.LstdFlags),
+	gormWriter{},
 	logger.Config{
 		SlowThreshold:             200 * time.Millisecond,
 		LogLevel:                  logger.Warn,
@@ -19,6 +19,14 @@ var gormLogger = logger.New(
 		IgnoreRecordNotFoundError: true,
 	},
 )
+
+// gormWriter reaches the standard logger when GORM writes, not when this package loads, so a redirect
+// installed at startup (logger.RedirectStdLog) catches it. GORM reports nothing below Warn here.
+type gormWriter struct{}
+
+func (gormWriter) Printf(format string, args ...any) {
+	log.Printf("warning: "+format, args...)
+}
 
 func gormConfig() *gorm.Config {
 	return &gorm.Config{Logger: gormLogger, DisableAutomaticPing: true}

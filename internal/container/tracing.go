@@ -42,7 +42,7 @@ func (c *Container) openTracing(cfg *config.Config) error {
 
 	otel.SetTracerProvider(provider)
 	otel.SetTextMapPropagator(tracing.Propagator())
-	// The SDK reports a failed export here; without it the error goes to the standard logger, off the JSON stream.
+	// The SDK reports a failed export here; without it the error reaches the log only as a bare INFO line.
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		c.Logger.Warn("opentelemetry error", map[string]any{"error": err.Error()})
 	}))

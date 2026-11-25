@@ -71,5 +71,5 @@ logger:
 # OpenTelemetry traces over OTLP/HTTP. A *Ctx log line inside a traced request gets trace_id, span_id, trace_flags.
 tracing:
   enabled: false
-  endpoint: http://localhost:4318 # collector base URL (Alloy, Tempo, Jaeger); empty: OTEL_EXPORTER_OTLP_ENDPOINT
+  endpoint: http://localhost:4318 # the Alloy agent on this host; empty: OTEL_EXPORTER_OTLP_ENDPOINT
   sample_ratio: 1.0 # share of new traces kept, 0 to 1; production usually wants 0.1 or less
