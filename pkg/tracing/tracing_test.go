@@ -17,7 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// collector stands in for Alloy, recording the path and body of every export.
+// collector stands in for an OTLP collector, recording the path and body of every export.
 type collector struct {
 	mu     sync.Mutex
 	paths  []string

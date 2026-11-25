@@ -71,10 +71,10 @@ logger:
 # OpenTelemetry traces over OTLP/HTTP; *Ctx lines in a traced request get trace_id and span_id.
 tracing:
   enabled: false
-  endpoint: http://localhost:4318 # the Alloy agent on this host; empty: OTEL_EXPORTER_OTLP_ENDPOINT
+  endpoint: http://localhost:4318 # an OTLP collector, usually this host's agent; empty: OTEL_EXPORTER_OTLP_ENDPOINT
   sample_ratio: 1.0 # share of new traces kept, 0 to 1; production usually 0.1 or less
 
-# Prometheus /metrics for the host's Alloy agent: runtime, process, pools, HTTP.
+# Prometheus /metrics for the host's agent to scrape: runtime, process, pools, HTTP.
 metrics:
   enabled: true
   port: 9464 # apart from server.port; for the agent only, never published

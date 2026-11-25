@@ -1,4 +1,4 @@
-# Local Postgres and Redis; the app runs on the host via `make run`, Grafana in observability-stack.
+# Local Postgres and Redis; the app runs on the host via `make run`.
 services:
   postgres:
     # Pinned to 17: 18 moved PGDATA, so the volume below would silently stop persisting.
