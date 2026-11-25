@@ -26,8 +26,8 @@ import (
 	"github.com/supernurture/go-template/pkg/tracing"
 )
 
-// tracedDeps is fullDeps with tracing on, the logger hooked as container.newLogger does and Redis on
-// redisotel's defaults; container.traceRedis's own options are tested in internal/container.
+// tracedDeps is fullDeps with tracing on and Redis on redisotel's defaults; container.traceRedis's
+// options are tested in internal/container.
 func tracedDeps(t *testing.T) (*container.Container, *tracetest.SpanRecorder, func() []map[string]any) {
 	t.Helper()
 	dir := t.TempDir()
@@ -138,7 +138,7 @@ func TestTracing(t *testing.T) {
 		}
 	})
 
-	// The HTTP conventions leave a server span's status unset for a 4xx: the caller erred, not the server.
+	// The HTTP conventions leave a 4xx server span unset: the caller erred.
 	t.Run("negative: a 4xx leaves the span unset and logs why it was refused", func(t *testing.T) {
 		tests := []struct{ name, method, path, body, reason string }{
 			{"unparsable parameter", http.MethodGet, "/example/notes?limit=abc", "", "Invalid format for parameter"},
@@ -190,7 +190,7 @@ func TestTracing(t *testing.T) {
 			t.Run(path, func(t *testing.T) {
 				deps, recorder, entries := tracedDeps(t)
 				get(t, newTestRouter(t, testConfig(), deps), path)
-				// /ready's own Redis PING is container.traceRedis's to skip; here only the server span counts.
+				// Skipping /ready's PING is container.traceRedis's job; only the server span counts here.
 				for _, span := range recorder.Ended() {
 					if span.SpanKind() == trace.SpanKindServer {
 						t.Errorf("server span %q recorded, want none for a probe", span.Name())
@@ -214,9 +214,9 @@ func TestTracing(t *testing.T) {
 }
 
 // Pin for stable numbers: taskset -c 0-7 go test -run '^$' -bench Tracing -count 10 ./internal/api/server/
-// Logs go to a discarded stderr; the file, which locks per line and hides tracing's cost, is BenchmarkLogFile.
+// Logs go to a discarded stderr; the file, which hides tracing's cost, is BenchmarkLogFile.
 
-// fakeRedis answers INCR in-process, under the instrumentation, so the numbers exclude a network hop.
+// fakeRedis answers INCR in-process, under the instrumentation, so no network hop is timed.
 type fakeRedis struct{}
 
 func (fakeRedis) DialHook(next goredis.DialHook) goredis.DialHook { return next }
@@ -240,11 +240,11 @@ var tracingVariants = []struct {
 	ratio float64 // below 0: tracing.enabled is false
 }{{"off", -1}, {"sample-10pct", 0.1}, {"sample-100pct", 1}}
 
-// benchRouter wires the router as container.NewContainer does. It returns the bytes the collector
-// received so far: the same bytes per request in Parallel as in Serial means no span was dropped.
+// benchRouter wires the router as container.NewContainer does and returns the collector's byte count;
+// equal bytes per request in Parallel and Serial mean no span was dropped.
 func benchRouter(b *testing.B, ratio float64, logFile bool) (http.Handler, func() int64) {
 	b.Helper()
-	// pkg/redis and pkg/database print through the standard logger; it would split benchmark lines.
+	// pkg/redis and pkg/database print via the standard logger, which would split benchmark lines.
 	previous := stdlog.Writer()
 	stdlog.SetOutput(io.Discard)
 	b.Cleanup(func() { stdlog.SetOutput(previous) })
@@ -285,7 +285,7 @@ func benchRouter(b *testing.B, ratio float64, logFile bool) (http.Handler, func(
 		b.Cleanup(collector.Close)
 		flush = func() int64 { _ = provider.Shutdown(context.Background()); return received.Load() }
 		deps.TracerProvider = provider
-		// The options container.traceRedis sets, less its PING filter: these routes send no PING.
+		// container.traceRedis's options minus its PING filter: these routes send none.
 		if err := redisotel.InstrumentTracing(client, redisotel.WithTracerProvider(provider),
 			redisotel.WithDBStatement(false), redisotel.WithCallerEnabled(false)); err != nil {
 			b.Fatal(err)
@@ -337,7 +337,7 @@ func BenchmarkTracing(b *testing.B) {
 	}
 }
 
-// BenchmarkLogFile is the parallel case with the log file on: compare it with Parallel/.../off above.
+// BenchmarkLogFile is the parallel case with the log file on; compare with Parallel/.../off.
 func BenchmarkLogFile(b *testing.B) {
 	router, _ := benchRouter(b, -1, true)
 	b.ReportAllocs()

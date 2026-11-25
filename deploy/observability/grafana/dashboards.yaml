@@ -1,9 +1,0 @@
-# Loads go-template.json into the otel-lgtm Grafana at startup. Edits made in the UI are kept until
-# the container is recreated; export the dashboard back to go-template.json to keep them.
-apiVersion: 1
-providers:
-  - name: go-template
-    type: file
-    allowUiUpdates: true
-    options:
-      path: /otel-lgtm/go-template-dashboard.json

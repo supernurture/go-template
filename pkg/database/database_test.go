@@ -1,7 +1,9 @@
 package database
 
 import (
+	"bytes"
 	"errors"
+	"log"
 	"testing"
 	"time"
 
@@ -59,6 +61,21 @@ func TestGormConfig(t *testing.T) {
 	})
 }
 
+func TestGormWriter(t *testing.T) {
+	t.Run("positive: GORM's report reaches the standard logger as a warning, at write time", func(t *testing.T) {
+		var got bytes.Buffer
+		previous, flags := log.Writer(), log.Flags()
+		log.SetOutput(&got) // after the package loaded, as logger.RedirectStdLog does
+		log.SetFlags(0)
+		t.Cleanup(func() { log.SetOutput(previous); log.SetFlags(flags) })
+
+		gormWriter{}.Printf("%s\n[%.3fms] SLOW SQL", "repo.go:12", 250.0)
+		if want := "warning: repo.go:12\n[250.000ms] SLOW SQL\n"; got.String() != want {
+			t.Errorf("standard log = %q, want %q", got.String(), want)
+		}
+	})
+}
+
 func TestHasTLS(t *testing.T) {
 	secure := []string{"sslmode=require", "sslmode=verify"}
 
@@ -79,7 +96,7 @@ func TestHasTLS(t *testing.T) {
 		}
 	})
 
-	// The drivers parse these case-insensitively, so TLS that is on still gets the cleartext warning.
+	// The drivers ignore case, so TLS that is on still gets the cleartext warning.
 	t.Run("negative: matching is case-sensitive", func(t *testing.T) {
 		if hasTLS("sslmode=REQUIRE", secure...) || hasTLS("Encrypt=True", "encrypt=true") {
 			t.Error("upper-case option counted as TLS; update this test if that was fixed on purpose")

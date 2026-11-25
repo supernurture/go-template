@@ -48,13 +48,13 @@ linters:
       - path: _test\.go
         linters:
           - bodyclose
-      # Doc comments earn their keep in pkg/, meant to be lifted into other services; not in internal/.
+      # Doc comments matter in pkg/, which other services lift; not in internal/.
       - path: internal/
         text: "^exported:"
         linters:
           - revive
 
 issues:
-  # 0 means no cap: a finding golangci-lint hides is a finding nobody fixes.
+  # 0 means no cap: a hidden finding never gets fixed.
   max-issues-per-linter: 0
   max-same-issues: 0

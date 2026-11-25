@@ -69,7 +69,7 @@ func mustPanic(t *testing.T, what string, fn func()) {
 	fn()
 }
 
-// authSeen sends one request through a client built from auth and returns the Authorization values received.
+// authSeen sends one request with auth and returns the Authorization values received.
 func authSeen(t *testing.T, auth config.ServiceAuth) []string {
 	t.Helper()
 	var got []string
@@ -92,7 +92,7 @@ func authSeen(t *testing.T, auth config.ServiceAuth) []string {
 	return got
 }
 
-// traceparentSeen sends one request under a parent span and returns the traceparent the upstream received.
+// traceparentSeen sends one request under a parent span and returns the traceparent received.
 func traceparentSeen(parent context.Context, t *testing.T, provider trace.TracerProvider) string {
 	t.Helper()
 	var got string
@@ -197,8 +197,8 @@ func TestWarnIfNotHTTPS(t *testing.T) {
 	})
 }
 
-// An empty Authorization header is worse than none: some upstreams reject the malformed
-// value, and it says the request is authenticated when nothing was configured.
+// An empty Authorization header is worse than none: some upstreams reject it, and it claims auth
+// where none was configured.
 func TestNewExampleClient(t *testing.T) {
 	t.Run("positive: sends basic auth to the configured base URL", func(t *testing.T) {
 		got := authSeen(t, config.ServiceAuth{User: "user", Password: "password"})

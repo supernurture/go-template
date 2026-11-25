@@ -14,7 +14,7 @@ type Handler struct {
 	log     *logger.Logger
 }
 
-// NewHandler panics on a nil dependency: failing at wiring beats panicking mid-request, after a note is committed.
+// NewHandler panics on a nil dependency: better at wiring than mid-request, after a commit.
 func NewHandler(service *Service, log *logger.Logger) *Handler {
 	if service == nil || log == nil {
 		panic("example: NewHandler needs a non-nil service and logger")

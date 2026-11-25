@@ -61,7 +61,7 @@ func newRouter(t *testing.T, cfg *config.Config) *gin.Engine {
 	return router
 }
 
-// only builds an engine with just the given middleware in front of handler on GET /.
+// only builds an engine with just middleware before handler on GET /.
 func only(handler gin.HandlerFunc, middleware ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -196,7 +196,7 @@ func TestRequestIDFrom(t *testing.T) {
 		}
 	})
 
-	// The doc warns against passing *gin.Context: without ContextWithFallback it does not see the ID.
+	// Hence the doc's warning: without ContextWithFallback, *gin.Context does not see the ID.
 	t.Run("negative: a *gin.Context instead of the request context", func(t *testing.T) {
 		var fromGin, fromRequest string
 		router := only(func(c *gin.Context) {
@@ -332,7 +332,7 @@ func TestReject(t *testing.T) {
 		}
 	})
 
-	// The request context is what handlers pass on downstream; recording on it would need an allocation per request.
+	// Handlers pass the request context downstream; recording on it would cost an allocation per request.
 	t.Run("negative: any other context records nothing and still returns the reason", func(t *testing.T) {
 		if got := Reject(context.Background(), "title is required"); got != "title is required" {
 			t.Errorf("Reject = %q, want the reason back", got)

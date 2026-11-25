@@ -58,7 +58,7 @@ func TestNewHandler(t *testing.T) {
 		}
 	})
 
-	// No dependencies means nothing can be down, so readiness is trivially true.
+	// No dependencies, nothing down.
 	t.Run("negative: no checks reports ready", func(t *testing.T) {
 		got, ok := ready(t, NewHandler(nil, nil)).(healthcontract.GetReady200JSONResponse)
 		if !ok || got.Condition != "Ready" {
@@ -127,7 +127,7 @@ func TestGetReady(t *testing.T) {
 		}
 	})
 
-	// The check runs in its own goroutine, out of Recovery's reach: unrecovered, this would kill the process.
+	// The check runs out of Recovery's reach: unrecovered, this would kill the process.
 	t.Run("negative: a panicking check is reported, not fatal", func(t *testing.T) {
 		log, logged := newTestLogger(t)
 		boom := func(context.Context) error { panic("nil pool") }

@@ -26,7 +26,7 @@ func readLogFile(t *testing.T, dir string) string {
 	return string(data)
 }
 
-// logOnce builds a file logger at level, runs write, closes it, and returns the file's contents.
+// logOnce runs write on a file logger at level and returns the file's contents.
 func logOnce(t *testing.T, level string, write func(*Logger)) string {
 	t.Helper()
 	base := t.TempDir()
