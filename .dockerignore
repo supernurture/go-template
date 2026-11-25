@@ -1,10 +1,10 @@
 # Secrets & config
-# Mounted at runtime instead: anything copied here stays readable in the image layer forever.
+# Mounted at runtime: anything copied stays readable in the image layer.
 .env
 configs/config.yaml
 
 # Version control
-# Can reach hundreds of MB, and the build never reads it.
+# Large, and the build never reads it.
 .git
 .gitignore
 
@@ -16,7 +16,7 @@ configs/config.yaml
 logs/
 
 # Go binaries & build output
-# Host builds, useless in the image and wrong architecture anyway.
+# Host builds, likely the wrong architecture.
 bin/
 dist/
 *.exe
@@ -31,7 +31,7 @@ dist/
 coverage.*
 
 # Docs & build files
-# Not needed to compile; excluding them keeps a README edit from invalidating the build cache.
+# Not needed to compile; a README edit should not invalidate the build cache.
 Dockerfile
 .dockerignore
 Makefile

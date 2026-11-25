@@ -66,7 +66,7 @@ func freePort(t *testing.T) (int, net.Listener) {
 	return addr.Port, listener
 }
 
-// freePorts returns two distinct ports nothing is listening on, for the API and /metrics.
+// freePorts returns two free ports, for the API and /metrics.
 func freePorts(t *testing.T) (api, metrics int) {
 	t.Helper()
 	api, first := freePort(t)
@@ -75,7 +75,7 @@ func freePorts(t *testing.T) (api, metrics int) {
 	return api, metrics
 }
 
-// configOnFreePort writes a valid config for a port nothing is listening on, and returns the port.
+// configOnFreePort writes a valid config on a free port and returns the port.
 func configOnFreePort(t *testing.T) int {
 	t.Helper()
 	port, listener := freePort(t)
@@ -411,7 +411,7 @@ func TestRun(t *testing.T) {
 		start := time.Now()
 		cancel()
 		wantRunError(t, waitFor(t, done), "shutdown server")
-		// 1.5s of drain; the full 2s would leave the flush nothing and overrun the budget.
+		// 1.5s of drain; the full 2s would leave the flush nothing.
 		if took := time.Since(start); took < 1500*time.Millisecond || took >= 1900*time.Millisecond {
 			t.Errorf("shutdown took %v, want the drain cut to about 1.5s", took)
 		}

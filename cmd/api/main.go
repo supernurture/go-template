@@ -24,7 +24,7 @@ const (
 	readTimeout = 15 * time.Second
 	idleTimeout = 60 * time.Second
 
-	// A scrape is a few hundred series; anything slower is a stuck agent, not a big response.
+	// A scrape is a few hundred series; slower than this is a stuck agent.
 	metricsWriteTimeout = 10 * time.Second
 
 	// Under docker stop's 10s grace period.
@@ -76,7 +76,7 @@ func run(ctx context.Context) (err error) {
 	}
 
 	serveErrCh := make(chan error, 2)
-	// Up before the API and closed after it has drained, so the agent's last scrapes still see the drain.
+	// Up before the API and closed after its drain, so the last scrapes still see it.
 	if deps.Metrics != nil {
 		metricsSrv, err := serveMetrics(cfg.Metrics.Port, deps, serveErrCh)
 		if err != nil {
@@ -123,7 +123,7 @@ func run(ctx context.Context) (err error) {
 	return nil
 }
 
-// serveMetrics serves GET /metrics on a port of its own, apart from the API, until the returned server closes.
+// serveMetrics serves GET /metrics on its own port until the returned server closes.
 func serveMetrics(port int, deps *container.Container, errCh chan<- error) (*http.Server, error) {
 	addr := fmt.Sprintf(":%d", port)
 	listener, err := listen("tcp", addr)

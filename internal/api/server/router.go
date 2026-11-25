@@ -17,7 +17,7 @@ import (
 	"github.com/supernurture/go-template/internal/middleware"
 )
 
-// NewRouter builds the gin engine: mode, trusted proxies, the middleware chain, and every module's generated routes.
+// NewRouter builds the gin engine: mode, trusted proxies, middleware, and every module's routes.
 func NewRouter(cfg *config.Config, deps *container.Container) (*gin.Engine, error) {
 	gin.SetMode(cfg.Server.Mode)
 
@@ -26,13 +26,13 @@ func NewRouter(cfg *config.Config, deps *container.Container) (*gin.Engine, erro
 		return nil, fmt.Errorf("set trusted proxies: %w", err)
 	}
 
-	// Without this, a handler's *gin.Context carries no deadline and the timeout never reaches downstream calls.
+	// Without it a handler's *gin.Context has no deadline, so the timeout never reaches downstream calls.
 	router.ContextWithFallback = true
 	// First, so the span covers the whole chain and every log line under it carries its trace_id.
 	if deps.TracerProvider != nil {
 		router.Use(serverTracing(cfg.App.Name, deps.TracerProvider))
 	}
-	// After tracing, so a sampled request's latency carries its trace_id; before Default, so it sees Recovery's 500.
+	// After tracing, for the trace_id exemplar; before Default, to see Recovery's 500.
 	if deps.Metrics != nil {
 		requestMetrics, err := middleware.Metrics(deps.Metrics)
 		if err != nil {
@@ -65,8 +65,7 @@ func register(router gin.IRouter, deps *container.Container) {
 	}
 }
 
-// The generated defaults write err.Error() into the body, leaking internals such as database errors,
-// and answer {"msg": ...} where the spec's Error, Recovery and Timeout all use "message".
+// The generated defaults leak err.Error() into the body and use "msg" where the spec uses "message".
 var (
 	healthOptions = healthcontract.StrictGinServerOptions{
 		RequestErrorHandlerFunc: badRequest, HandlerErrorFunc: internalError, ResponseErrorHandlerFunc: internalError,
@@ -81,8 +80,7 @@ func invalidParam(c *gin.Context, err error, status int) {
 	c.JSON(status, gin.H{"message": middleware.Reject(c, err.Error())})
 }
 
-// badRequest answers a body the server could not decode; the decoder's message is about the caller's input.
-// The log gets the decoder's own error even where the body says something friendlier.
+// badRequest answers a body that does not decode; the log keeps the decoder's own error.
 func badRequest(c *gin.Context, err error) {
 	middleware.Reject(c, err.Error())
 	switch tooLarge := (*http.MaxBytesError)(nil); {
@@ -98,8 +96,7 @@ func badRequest(c *gin.Context, err error) {
 // internalError keeps the cause in c.Errors for AccessLog and out of the response.
 func internalError(c *gin.Context, err error) {
 	_ = c.Error(err)
-	// Left unwritten past the deadline, so Timeout can answer 504; and a response already
-	// on the wire (a failed write) must not get a second body appended.
+	// Unwritten past the deadline, so Timeout can answer 504, or after a failed write, to avoid a second body.
 	if c.Writer.Written() || c.Request.Context().Err() != nil {
 		c.Status(http.StatusInternalServerError)
 		return

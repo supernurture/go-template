@@ -6,11 +6,11 @@ RUN go mod download
 
 COPY . .
 ARG APP=api
-# From the requested image platform: cross-compile natively instead of emulating.
+# Cross-compile natively instead of emulating the target platform.
 ARG TARGETOS TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 	go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/${APP}
-# Staged here because the runtime image has no shell to mkdir a writable log dir.
+# The runtime image has no shell to create a writable log dir.
 RUN mkdir -p /out/logs
 
 # Dependabot cannot bump the Debian release in the image name; do it by hand.
@@ -22,9 +22,8 @@ COPY --from=build --chown=65532:65532 /out/logs /app/logs
 # Documentation only: the real ports come from server.port and metrics.port in the config.
 EXPOSE 8080 9464
 
-# Already the base image's default; stated so scanners that cannot see into it (Trivy DS-0002) agree.
-# Numeric, as the base sets it: Kubernetes runAsNonRoot rejects a user name it cannot verify.
+# The base's default, stated for scanners (Trivy DS-0002); numeric, as runAsNonRoot requires.
 USER 65532:65532
 
-# Exec form, so the binary is PID 1 and receives SIGTERM from `docker stop` directly.
+# Exec form, so the binary is PID 1 and gets SIGTERM directly.
 ENTRYPOINT ["/app/app"]

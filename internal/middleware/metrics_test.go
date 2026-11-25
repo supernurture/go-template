@@ -54,7 +54,7 @@ func activeRequests(t *testing.T, reg prometheus.Gatherer, method string) float6
 	return -1
 }
 
-// metricsRouter mounts Metrics outside Recovery, as NewRouter does, with optional middleware before it.
+// metricsRouter mounts Metrics outside Recovery, as NewRouter does, after any before.
 func metricsRouter(t *testing.T, reg prometheus.Registerer, before ...gin.HandlerFunc) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

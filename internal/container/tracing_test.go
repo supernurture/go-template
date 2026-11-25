@@ -26,7 +26,7 @@ import (
 	"github.com/supernurture/go-template/pkg/tracing"
 )
 
-// restoreGlobals puts otel's globals back after a test that enabled tracing installs its own.
+// restoreGlobals resets otel's globals after a test installs its own.
 func restoreGlobals(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -36,12 +36,12 @@ func restoreGlobals(t *testing.T) {
 	})
 }
 
-// keptExporter is tracetest's InMemoryExporter minus the reset on Shutdown, so a test can see what Close flushed.
+// keptExporter is tracetest's InMemoryExporter without the reset on Shutdown, to see what Close flushed.
 type keptExporter struct {
 	mu       sync.Mutex
 	names    []string
-	shutdown error // what Shutdown returns, standing in for a collector that is down
-	hang     bool  // Shutdown waits for its deadline, as an export to a collector that never answers
+	shutdown error // what Shutdown returns, as for a collector that is down
+	hang     bool  // Shutdown waits for its deadline, as for a collector that never answers
 }
 
 func (e *keptExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
@@ -65,7 +65,7 @@ func (e *keptExporter) exported() []string {
 	return append([]string(nil), e.names...)
 }
 
-// stubTracing makes NewContainer build a provider that batches into memory, and records the config it got.
+// stubTracing makes NewContainer batch spans into memory, and records the config it got.
 func stubTracing(t *testing.T) (*keptExporter, *tracing.Config) {
 	t.Helper()
 	restoreGlobals(t)
@@ -88,7 +88,7 @@ func tracingConfig(t *testing.T) *config.Config {
 	return cfg
 }
 
-// recording returns a container that traces into a synchronous recorder, for the instrumentation tests.
+// recording returns a container tracing into a synchronous recorder.
 func recording() (*Container, *tracetest.SpanRecorder) {
 	recorder := tracetest.NewSpanRecorder()
 	c := emptyContainer()
@@ -151,7 +151,7 @@ func TestOpenTracing(t *testing.T) {
 			t.Error("the global propagator does not write traceparent")
 		}
 
-		// The batcher still holds the span; Close must flush it before the process exits.
+		// The batcher still holds the span; Close must flush it.
 		if names := exporter.exported(); len(names) != 0 {
 			t.Fatalf("exported before Close = %v, want nothing yet", names)
 		}

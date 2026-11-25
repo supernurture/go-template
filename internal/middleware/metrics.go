@@ -12,20 +12,18 @@ import (
 	"github.com/supernurture/go-template/pkg/metrics"
 )
 
-// The OpenTelemetry HTTP semantic conventions' names and buckets, so these series line up with what an
-// OTel-instrumented service in another language exports.
+// OTel HTTP semconv buckets, so the series match OTel-instrumented services in other languages.
 var requestDurationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10}
 
-// knownMethods bounds the method label: anything else is _OTHER, so a scanner cannot mint a series per verb.
+// knownMethods bounds the method label; anything else is _OTHER, so a scanner cannot add series.
 var knownMethods = map[string]bool{
 	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true, http.MethodPut: true,
 	http.MethodPatch: true, http.MethodDelete: true, http.MethodConnect: true, http.MethodOptions: true,
 	http.MethodTrace: true,
 }
 
-// Metrics records every request's duration by method, route template and status, and the requests in
-// flight. Mount it outside Recovery, so a panic counts as the 500 it becomes, and inside the tracing
-// middleware, so a sampled request's bucket carries its trace_id as an exemplar.
+// Metrics records request duration by method, route and status, and requests in flight. Mount it outside
+// Recovery, so a panic counts as its 500, and inside tracing, so a sampled bucket gets a trace_id exemplar.
 func Metrics(reg prometheus.Registerer) (gin.HandlerFunc, error) {
 	duration, err := metrics.Reuse(reg, prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "http_server_request_duration_seconds",
@@ -50,12 +48,12 @@ func Metrics(reg prometheus.Registerer) (gin.HandlerFunc, error) {
 		}
 		inFlight := active.WithLabelValues(method)
 		inFlight.Inc()
-		defer inFlight.Dec() // also when a panic Recovery rethrows (http.ErrAbortHandler) unwinds through here
+		defer inFlight.Dec() // also on a panic Recovery rethrows
 
 		start := time.Now()
 		c.Next()
 
-		// The route template, never the path: /notes/42 and /notes/43 are one series. Unmatched is "".
+		// The route template, not the path, so /notes/42 and /notes/43 share a series; "" when unmatched.
 		observer := duration.WithLabelValues(method, c.FullPath(), strconv.Itoa(c.Writer.Status()))
 		elapsed := time.Since(start).Seconds()
 		sc := trace.SpanContextFromContext(c.Request.Context())

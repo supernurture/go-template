@@ -8,15 +8,14 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// StdWarningPrefix marks a standard-library log message as a warning; RedirectStdLog strips it and logs at WARN.
+// StdWarningPrefix marks a standard log message as a WARN for RedirectStdLog, which strips it.
 const StdWarningPrefix = "warning: "
 
-// RedirectStdLog sends the standard library's logger through l, so what pkg/database and pkg/redis report
-// becomes JSON lines with the service fields, on the same outputs a log agent reads. A message starting
-// StdWarningPrefix is a WARN, the rest INFO. The returned func puts the previous output, prefix and flags back.
+// RedirectStdLog routes the standard logger through l as JSON: StdWarningPrefix lines at WARN, the rest
+// at INFO. The returned func restores the previous output, prefix and flags.
 func (l *Logger) RedirectStdLog() (restore func()) {
 	out, prefix, flags := log.Writer(), log.Prefix(), log.Flags()
-	// The JSON line has its own timestamp; the standard date and prefix would only repeat it inside the message.
+	// The JSON line has its own timestamp; the standard date would repeat it.
 	log.SetOutput(stdLogWriter{zap: l.zap})
 	log.SetPrefix("")
 	log.SetFlags(0)
@@ -27,7 +26,7 @@ func (l *Logger) RedirectStdLog() (restore func()) {
 	}
 }
 
-// stdLogWriter gets one Write per message: the standard logger formats a whole line before writing it.
+// stdLogWriter gets one Write per message: the standard logger writes whole lines.
 type stdLogWriter struct {
 	zap *zap.Logger
 }

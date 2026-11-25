@@ -16,7 +16,7 @@ import (
 	"github.com/supernurture/go-template/pkg/tracing"
 )
 
-// The span flush on Close takes a quarter of server.shutdown_timeout, at most this; the rest drains requests.
+// The span flush gets a quarter of server.shutdown_timeout, at most this; the rest drains requests.
 const maxFlushTimeout = 2 * time.Second
 
 var (
@@ -24,7 +24,7 @@ var (
 	instrumentRedis   = redisotel.InstrumentTracing
 )
 
-// openTracing installs the provider globally as well, so otel.Tracer(...) in a module joins the same traces.
+// openTracing also installs the provider globally, so otel.Tracer in a module joins the same traces.
 func (c *Container) openTracing(cfg *config.Config) error {
 	if !cfg.Tracing.Enabled {
 		return nil
@@ -48,8 +48,7 @@ func (c *Container) openTracing(cfg *config.Config) error {
 	}))
 
 	c.TracerProvider = provider
-	// Spans are best effort, as at startup: a collector that is down at shutdown costs the last batch,
-	// logged here, not a failed exit.
+	// Best effort, as at startup: a collector down at shutdown costs the last batch, not a failed exit.
 	c.shutdowns = append(c.shutdowns, func() error {
 		timeout := c.flushTimeout
 		if timeout <= 0 { // Close without SplitShutdown, as after a failed start
@@ -65,8 +64,8 @@ func (c *Container) openTracing(cfg *config.Config) error {
 	return nil
 }
 
-// SplitShutdown divides the shutdown budget: it keeps part of total for Close to flush spans and
-// returns the rest, for the server to drain requests in. Without tracing the whole budget drains.
+// SplitShutdown keeps part of total for Close to flush spans and returns the rest for draining.
+// Without tracing the whole budget drains.
 func (c *Container) SplitShutdown(total time.Duration) (drain time.Duration) {
 	if c.TracerProvider == nil {
 		return total
@@ -83,8 +82,8 @@ func (c *Container) traceGorm(conn *gorm.DB, system string) error {
 	return conn.Use(database.NewTracingPlugin(c.TracerProvider, system))
 }
 
-// traceRedis names each span after its command. The arguments stay off it, since a cached value
-// can be a token or personal data, and so does the caller lookup, which costs a stack walk per command.
+// traceRedis names each span after its command. No arguments, which can hold tokens or personal data,
+// and no caller lookup, which costs a stack walk per command.
 func (c *Container) traceRedis(client *goredis.Client) error {
 	if c.TracerProvider == nil {
 		return nil
@@ -97,8 +96,8 @@ func (c *Container) traceRedis(client *goredis.Client) error {
 	)
 }
 
-// untracedCommand skips PING, which /ready sends on every probe outside any request span, so each
-// would start a trace of its own; and keeps redisotel's default of skipping AUTH and HELLO with a password.
+// untracedCommand skips /ready's PING, which would start a trace per probe, plus redisotel's default
+// of AUTH and HELLO with a password.
 func untracedCommand(cmd goredis.Cmder) bool {
 	return strings.EqualFold(cmd.Name(), "ping") || redisotel.DefaultCommandFilter(cmd)
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/supernurture/go-template/pkg/metrics"
 )
 
-// dbNames lists the db_name of every series of the family, as the registry gathers it.
+// dbNames lists the db_name of every series in family.
 func dbNames(t *testing.T, reg prometheus.Gatherer, family string) []string {
 	t.Helper()
 	gathered, err := reg.Gather()
@@ -79,7 +79,7 @@ func TestMetricsEnabled(t *testing.T) {
 				stubOpeners(t)
 				c := emptyContainer()
 				c.Metrics = metrics.NewRegistry()
-				// A collector already exporting under the name makes the pool's registration clash.
+				// A collector already under the name makes the pool's registration clash.
 				db, _ := mockGorm(t, false)
 				sqlDB, _ := db.DB()
 				if strings.HasPrefix(taken, "redis/") {

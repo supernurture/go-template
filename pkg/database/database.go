@@ -20,8 +20,8 @@ var gormLogger = logger.New(
 	},
 )
 
-// gormWriter reaches the standard logger when GORM writes, not when this package loads, so a redirect
-// installed at startup (logger.RedirectStdLog) catches it. GORM reports nothing below Warn here.
+// gormWriter looks up the standard logger at write time, so logger.RedirectStdLog catches GORM too.
+// GORM reports nothing below Warn here.
 type gormWriter struct{}
 
 func (gormWriter) Printf(format string, args ...any) {

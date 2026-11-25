@@ -96,7 +96,7 @@ func TestHasTLS(t *testing.T) {
 		}
 	})
 
-	// The drivers parse these case-insensitively, so TLS that is on still gets the cleartext warning.
+	// The drivers ignore case, so TLS that is on still gets the cleartext warning.
 	t.Run("negative: matching is case-sensitive", func(t *testing.T) {
 		if hasTLS("sslmode=REQUIRE", secure...) || hasTLS("Encrypt=True", "encrypt=true") {
 			t.Error("upper-case option counted as TLS; update this test if that was fixed on purpose")

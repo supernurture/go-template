@@ -7,12 +7,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// ContextFields returns the fields a context carries, or nil when it carries none. It runs on every
-// *Ctx line that passes the level check, so it must be cheap and must not log.
+// ContextFields returns the fields a context carries, or nil. It runs on every logged *Ctx line, so it
+// must be cheap and must not log.
 type ContextFields func(ctx context.Context) map[string]any
 
-// The *Ctx methods call Check themselves rather than share a helper: an extra frame would move the
-// reported caller, and Check skips the ContextFields work for a line the level drops anyway.
+// Each *Ctx method calls Check itself: a shared helper would shift the reported caller, and Check skips
+// the hooks for a dropped line.
 
 // DebugCtx logs at DEBUG level with the fields ctx carries added to fields.
 func (l *Logger) DebugCtx(ctx context.Context, msg string, fields map[string]any) {
@@ -42,13 +42,12 @@ func (l *Logger) ErrorCtx(ctx context.Context, msg string, fields map[string]any
 	}
 }
 
-// withContext merges what ctx carries into fields. A key the caller passed wins, then the first hook
-// to return it, so a context field never repeats a key on the line.
+// withContext merges what ctx carries into fields; the caller's key wins, then the first hook's.
 func (l *Logger) withContext(ctx context.Context, fields map[string]any) []zap.Field {
 	if ctx == nil || len(l.ctxFields) == 0 {
 		return zapFields(fields)
 	}
-	// Room for a couple of context fields per hook, so the common case appends without regrowing.
+	// Room for two fields per hook, so the common case never regrows.
 	out := make([]zap.Field, 0, len(fields)+2*len(l.ctxFields))
 	for key, value := range fields {
 		out = append(out, zap.Any(key, value))

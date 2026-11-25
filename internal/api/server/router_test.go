@@ -263,7 +263,7 @@ func TestRegister(t *testing.T) {
 		wantResponse(t, get(t, router, "/ready"), http.StatusServiceUnavailable, `{"condition":"NotReady"}`)
 	})
 
-	// The handler's line and the access-log line share the ID the client sees, with no handler copying it.
+	// The handler's line and the access-log line share the client's ID, with no copying.
 	t.Run("negative: every line a failed readiness check writes carries the request ID", func(t *testing.T) {
 		deps, logged := newLoggedDeps(t)
 		withRedis(t, deps)
@@ -291,7 +291,7 @@ func TestRegister(t *testing.T) {
 }
 
 func TestInvalidParam(t *testing.T) {
-	// c.Errors would mark the trace span as failed for what is the caller's mistake.
+	// c.Errors would fail the span for the caller's mistake.
 	t.Run("positive: answers with the given status and records a reason, not an error", func(t *testing.T) {
 		c, rec := testContext(context.Background())
 		invalidParam(c, errors.New("Invalid format for parameter limit"), http.StatusBadRequest)
@@ -338,7 +338,7 @@ func TestBadRequest(t *testing.T) {
 		}
 	})
 
-	// The decoder's message names Go types, which says more about the server than the caller needs.
+	// The decoder's message names Go types, which the caller need not see.
 	t.Run("negative: a wrongly typed field leaks Go type names", func(t *testing.T) {
 		rec := postNote(t, testConfig(), `{"title":5}`)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Go struct field") {

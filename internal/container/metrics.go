@@ -7,7 +7,7 @@ import (
 	"github.com/supernurture/go-template/pkg/metrics"
 )
 
-// measureGorm exports the pool's connection counts and waits under name, the key /ready reports it by.
+// measureGorm exports the pool's stats under name, the key /ready uses.
 func (c *Container) measureGorm(conn *gorm.DB, name string) error {
 	if c.Metrics == nil {
 		return nil
@@ -19,7 +19,7 @@ func (c *Container) measureGorm(conn *gorm.DB, name string) error {
 	return metrics.RegisterSQL(c.Metrics, name, sqlDB)
 }
 
-// measureRedis exports the client's pool hits, misses, timeouts and connections under name.
+// measureRedis exports the client's pool stats under name.
 func (c *Container) measureRedis(client *goredis.Client, name string) error {
 	if c.Metrics == nil {
 		return nil

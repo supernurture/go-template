@@ -48,7 +48,7 @@ func scrape(t *testing.T, handler http.Handler, accept string) (*http.Response, 
 	return rec.Result(), string(body)
 }
 
-// broken is a collector whose every scrape fails, standing in for a pool that cannot report.
+// broken is a collector whose every scrape fails.
 type broken struct{ desc *prometheus.Desc }
 
 func (b broken) Describe(ch chan<- *prometheus.Desc) { ch <- b.desc }

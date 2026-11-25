@@ -28,9 +28,9 @@ type Container struct {
 	Postgres   map[string]*gorm.DB
 	SQLServer  map[string]*gorm.DB
 	Redis      map[string]*goredis.Client
-	// TracerProvider is nil when tracing.enabled is false; the router and clients then add no instrumentation.
+	// TracerProvider is nil when tracing is off; nothing is then instrumented.
 	TracerProvider trace.TracerProvider
-	// Metrics is nil when metrics.enabled is false; nothing is then counted or served.
+	// Metrics is nil when metrics are off; nothing is then counted or served.
 	Metrics *prometheus.Registry
 
 	flushTimeout time.Duration // set by SplitShutdown; maxFlushTimeout until then
@@ -52,7 +52,7 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 
 		shutdowns: []func() error{log.Close},
 	}
-	// Before anything opens, so the connection notices and GORM's warnings land in the JSON log too.
+	// Before anything opens, so connection notices and GORM warnings land in the JSON log.
 	restoreStdLog := log.RedirectStdLog()
 	deps.shutdowns = append(deps.shutdowns, func() error { restoreStdLog(); return nil })
 
@@ -99,8 +99,7 @@ func (c *Container) Pings() map[string]func(context.Context) error {
 	return checks
 }
 
-// abort logs why the start failed while the logger is still open, so the reason reaches the JSON log a
-// log agent reads, not only main's plain stderr line, then unwinds what opened.
+// abort logs the failure while the logger is open, so the agent sees it too, then unwinds what opened.
 func (c *Container) abort(err error) error {
 	c.Logger.Error("start failed", map[string]any{"error": err.Error()})
 	_ = c.Close()

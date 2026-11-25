@@ -24,7 +24,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Cheap checks first: a typo should not cost a lint build.
+      # Cheap checks first.
       - name: Formatting
         run: |
           unformatted=$(gofmt -l .)
@@ -46,7 +46,7 @@ jobs:
           stale=$(git status --porcelain -- internal/api/server/oapicodegen)
           [ -z "$stale" ] || { echo "::error::generated code is stale -- run 'make oapicodegen' and commit the result"; echo "$stale"; exit 1; }
 
-      # Keyed on the Makefile so bumping GOLANGCI_VERSION cannot leave a stale binary cached.
+      # Keyed on the Makefile, so a GOLANGCI_VERSION bump busts it.
       - name: Cache golangci-lint
         id: lint-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -61,7 +61,7 @@ jobs:
       - name: Lint
         run: make lint
 
-      # Unit tests only: Postgres and Redis are mocked (sqlmock, miniredis), so no services are needed.
+      # Unit tests only: sqlmock and miniredis stand in for Postgres and Redis.
       - name: Test
         run: make test
 

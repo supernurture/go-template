@@ -189,11 +189,11 @@ func TestLoad(t *testing.T) {
 			if got := cfg.Databases.Postgres["example"].User; got != "postgres" {
 				t.Errorf("postgres user = %q, want %q from .env.example", got, "postgres")
 			}
-			// Off, so a fresh clone does not log export errors for a collector it never started.
+			// Off, so a fresh clone logs no export errors.
 			if cfg.Tracing.Enabled || cfg.Tracing.Endpoint == "" {
 				t.Errorf("tracing = %+v, want it off with an endpoint to switch on", cfg.Tracing)
 			}
-			// On: a scrape needs nothing running, unlike a collector for traces.
+			// On: a scrape needs nothing running.
 			if !cfg.Metrics.Enabled || cfg.Metrics.Port == 0 || cfg.Metrics.Port == cfg.Server.Port {
 				t.Errorf("metrics = %+v, want it on, on a port of its own", cfg.Metrics)
 			}

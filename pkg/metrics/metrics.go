@@ -1,5 +1,4 @@
-// Package metrics keeps a Prometheus registry for a host agent to scrape: the Go runtime and the process
-// from the start, connection pools and HTTP requests as the app registers them.
+// Package metrics builds the Prometheus registry a host agent scrapes.
 package metrics
 
 import (
@@ -14,9 +13,8 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// NewRegistry returns a registry holding the Go runtime (goroutines, heap, GC) and process (CPU, memory,
-// file descriptors) collectors. A registry of its own, not the global default, so tests and a second app
-// in the same process never collide.
+// NewRegistry returns a registry with the Go runtime and process collectors. Not the global default,
+// so tests never collide.
 func NewRegistry() *prometheus.Registry {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
@@ -26,9 +24,8 @@ func NewRegistry() *prometheus.Registry {
 	return reg
 }
 
-// Handler serves reg in the Prometheus text format, or OpenMetrics when the scraper asks for it: only
-// OpenMetrics carries the exemplars that link a latency bucket to a trace. It counts its own scrapes and
-// errors in reg as promhttp_metric_handler_*, reusing those series when called again on the same reg.
+// Handler serves reg as Prometheus text, or OpenMetrics on request, the only format carrying exemplars.
+// It counts its own scrapes in reg, reusing the series when called again.
 func Handler(reg *prometheus.Registry) http.Handler {
 	return promhttp.InstrumentMetricHandler(reg, promhttp.HandlerFor(reg, promhttp.HandlerOpts{
 		Registry:          reg,
@@ -38,20 +35,19 @@ func Handler(reg *prometheus.Registry) http.Handler {
 	}))
 }
 
-// RegisterSQL adds a pool's open, idle and in-use connections and its waits as go_sql_*{db_name=name}.
+// RegisterSQL exports a pool's stats as go_sql_*{db_name=name}.
 func RegisterSQL(reg prometheus.Registerer, name string, db *sql.DB) error {
 	return reg.Register(collectors.NewDBStatsCollector(db, name))
 }
 
-// RegisterRedis adds a client's pool hits, misses, timeouts and connections as go_redis_*{db_name=name},
-// the label go_sql_* uses, so one dashboard variable selects either.
+// RegisterRedis exports a client's pool stats as go_redis_*{db_name=name}, the label go_sql_* uses.
 func RegisterRedis(reg prometheus.Registerer, name string, client *goredis.Client) error {
 	labeled := prometheus.WrapRegistererWith(prometheus.Labels{"db_name": name}, reg)
 	return labeled.Register(redisprometheus.NewCollector("go", "redis", client))
 }
 
-// Reuse registers c, or returns the collector already registered under the same descriptors, so a
-// constructor called twice on one registry (a second router in a test) shares one set of series.
+// Reuse registers c, or returns the collector already registered with its descriptors, so a second
+// router on one registry shares the series.
 func Reuse[C prometheus.Collector](reg prometheus.Registerer, c C) (C, error) {
 	err := reg.Register(c)
 	if err == nil {

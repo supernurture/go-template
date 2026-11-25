@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config struct defines the structure of the configuration file.
+// Config mirrors configs/config.yaml.
 type Config struct {
 	App       App                `mapstructure:"app"`
 	Server    Server             `mapstructure:"server"`
@@ -119,8 +119,7 @@ type Tracing struct {
 	SampleRatio float64 `mapstructure:"sample_ratio" validate:"gte=0,lte=1"`
 }
 
-// Metrics serves Prometheus /metrics on a port of its own, for the host's Alloy agent to scrape; never
-// publish that port, since the runtime and pool figures describe the service's insides.
+// Metrics serves Prometheus /metrics on its own port for the host's agent; never publish that port.
 type Metrics struct {
 	Enabled bool `mapstructure:"enabled"`
 	Port    int  `mapstructure:"port"    validate:"required_if=Enabled true,omitempty,min=1,max=65535"`
@@ -134,7 +133,7 @@ const (
 	configPath = "configs/"
 )
 
-// Load reads configs/config.yaml, overlays .env and the environment, and validates the result before returning it.
+// Load reads configs/config.yaml, overlays .env and the environment, and validates the result.
 func Load() (*Config, error) {
 	if err := godotenv.Load(dotEnvPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("load %s: %w", dotEnvPath, err)
@@ -163,7 +162,7 @@ func Load() (*Config, error) {
 	if err := validator.New().Struct(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	// Checked here: the validator's cross-struct tags do not reach from Metrics to Server.
+	// The validator's cross-struct tags cannot reach from Metrics to Server.
 	if cfg.Metrics.Enabled && cfg.Metrics.Port == cfg.Server.Port {
 		return nil, fmt.Errorf("invalid config: metrics.port %d is server.port too; give /metrics its own",
 			cfg.Metrics.Port)

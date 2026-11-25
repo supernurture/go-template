@@ -46,7 +46,7 @@ func TestWithTimeout(t *testing.T) {
 		}
 	})
 
-	// An unconfigured service has a zero Timeout; letting it through would leave no timeout at all.
+	// An unconfigured service has a zero Timeout; passing it on would mean no timeout at all.
 	t.Run("negative: zero or negative keeps the default", func(t *testing.T) {
 		for _, timeout := range []time.Duration{0, -time.Second} {
 			if got := New(WithTimeout(timeout)).http.Timeout; got != 30*time.Second {
@@ -55,7 +55,7 @@ func TestWithTimeout(t *testing.T) {
 		}
 	})
 
-	// The option writes through to the caller's client, so a shared one (http.DefaultClient) is changed.
+	// The option writes through, so a shared client such as http.DefaultClient is changed.
 	t.Run("negative: mutates a client passed with WithHTTPClient", func(t *testing.T) {
 		custom := &http.Client{}
 		New(WithHTTPClient(custom), WithTimeout(2*time.Second))
@@ -104,7 +104,7 @@ func TestWithHeader(t *testing.T) {
 		}
 	})
 
-	// Headers are stored verbatim and only canonicalised by req.Header.Set, so case variants collide late.
+	// Headers are canonicalised only by req.Header.Set, so case variants collide late.
 	t.Run("negative: header names that differ only in case are both kept", func(t *testing.T) {
 		client := New(WithHeader("x-key", "lower"), WithHeader("X-Key", "upper"))
 		if len(client.headers) != 2 {
