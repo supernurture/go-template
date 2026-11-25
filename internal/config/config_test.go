@@ -145,6 +145,16 @@ func TestLoad(t *testing.T) {
 			}
 		})
 
+		t.Run("metrics", func(t *testing.T) {
+			cfg := mustLoad(t, validConfig+"metrics:\n  enabled: true\n  port: 9464\n")
+			if got := cfg.Metrics; !got.Enabled || got.Port != 9464 {
+				t.Errorf("metrics = %+v, want enabled on 9464", got)
+			}
+			if cfg := mustLoad(t, validConfig+"metrics:\n  enabled: false\n"); cfg.Metrics.Enabled {
+				t.Error("metrics.enabled = true, want false: a disabled block needs no port")
+			}
+		})
+
 		t.Run("environment overrides the file", func(t *testing.T) {
 			t.Setenv("APP_NAME", "from-env")
 			if cfg := mustLoad(t, validConfig); cfg.App.Name != "from-env" {
@@ -182,6 +192,10 @@ func TestLoad(t *testing.T) {
 			// Off, so a fresh clone does not log export errors for a collector it never started.
 			if cfg.Tracing.Enabled || cfg.Tracing.Endpoint == "" {
 				t.Errorf("tracing = %+v, want it off with an endpoint to switch on", cfg.Tracing)
+			}
+			// On: a scrape needs nothing running, unlike a collector for traces.
+			if !cfg.Metrics.Enabled || cfg.Metrics.Port == 0 || cfg.Metrics.Port == cfg.Server.Port {
+				t.Errorf("metrics = %+v, want it on, on a port of its own", cfg.Metrics)
 			}
 		})
 	})
@@ -223,10 +237,14 @@ func TestLoad(t *testing.T) {
 			"service endpoint has an empty path": {
 				validConfig + service("https://api.example.com", `inquiry: ""`), "Endpoints[inquiry]"},
 			// pkg/logger accepts any case, the validator only upper case.
-			"lower-case logger level":       {strings.Replace(validConfig, "level: INFO", "level: info", 1), "Level"},
-			"tracing sample ratio above 1":  {validConfig + "tracing:\n  sample_ratio: 1.5\n", "SampleRatio"},
-			"tracing sample ratio below 0":  {validConfig + "tracing:\n  sample_ratio: -0.1\n", "SampleRatio"},
-			"tracing endpoint is not a url": {validConfig + "tracing:\n  endpoint: alloy\n", "Endpoint"},
+			"lower-case logger level":        {strings.Replace(validConfig, "level: INFO", "level: info", 1), "Level"},
+			"tracing sample ratio above 1":   {validConfig + "tracing:\n  sample_ratio: 1.5\n", "SampleRatio"},
+			"tracing sample ratio below 0":   {validConfig + "tracing:\n  sample_ratio: -0.1\n", "SampleRatio"},
+			"tracing endpoint is not a url":  {validConfig + "tracing:\n  endpoint: alloy\n", "Endpoint"},
+			"metrics enabled without a port": {validConfig + "metrics:\n  enabled: true\n", "Port"},
+			"metrics port out of range":      {validConfig + "metrics:\n  enabled: true\n  port: 70000\n", "Port"},
+			"metrics on the API's port": {
+				validConfig + "metrics:\n  enabled: true\n  port: 8080\n", "metrics.port 8080 is server.port"},
 		}
 		for name, test := range tests {
 			t.Run(name, func(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	goredis "github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -24,6 +25,7 @@ import (
 	"github.com/supernurture/go-template/internal/container"
 	"github.com/supernurture/go-template/internal/middleware"
 	"github.com/supernurture/go-template/pkg/logger"
+	"github.com/supernurture/go-template/pkg/metrics"
 	"github.com/supernurture/go-template/pkg/redis"
 )
 
@@ -155,6 +157,37 @@ func TestNewRouter(t *testing.T) {
 		wantResponse(t, rec, http.StatusOK, `{"condition":"Healthy"}`)
 		if rec.Header().Get("X-Request-ID") == "" {
 			t.Error("X-Request-ID header missing, middleware chain did not run")
+		}
+	})
+
+	t.Run("positive: with metrics on, every request is counted by its route", func(t *testing.T) {
+		deps := newTestDeps(t)
+		deps.Metrics = metrics.NewRegistry()
+		router := newTestRouter(t, testConfig(), deps)
+		get(t, router, "/health")
+		get(t, router, "/health")
+
+		gathered, _ := deps.Metrics.Gather()
+		var count uint64
+		for _, family := range gathered {
+			if family.GetName() == "http_server_request_duration_seconds" {
+				for _, metric := range family.GetMetric() {
+					count += metric.GetHistogram().GetSampleCount()
+				}
+			}
+		}
+		if count != 2 {
+			t.Errorf("requests counted = %d, want 2", count)
+		}
+	})
+
+	t.Run("negative: request metrics that cannot register", func(t *testing.T) {
+		deps := newTestDeps(t)
+		deps.Metrics = metrics.NewRegistry()
+		deps.Metrics.MustRegister(prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "http_server_request_duration_seconds", Help: "Taken."}))
+		if _, err := NewRouter(testConfig(), deps); err == nil || !strings.Contains(err.Error(), "request metrics") {
+			t.Fatalf("NewRouter = %v, want the metrics failure", err)
 		}
 	})
 

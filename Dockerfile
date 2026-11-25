@@ -19,8 +19,8 @@ WORKDIR /app
 COPY --from=build /out/app /app/app
 COPY --from=build --chown=65532:65532 /out/logs /app/logs
 
-# Documentation only: the real port comes from server.port in the config.
-EXPOSE 8080
+# Documentation only: the real ports come from server.port and metrics.port in the config.
+EXPOSE 8080 9464
 
 # Already the base image's default; stated so scanners that cannot see into it (Trivy DS-0002) agree.
 # Numeric, as the base sets it: Kubernetes runAsNonRoot rejects a user name it cannot verify.

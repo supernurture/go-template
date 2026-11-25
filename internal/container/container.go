@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	goredis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
@@ -15,6 +16,7 @@ import (
 	"github.com/supernurture/go-template/internal/middleware"
 	"github.com/supernurture/go-template/pkg/database"
 	"github.com/supernurture/go-template/pkg/logger"
+	"github.com/supernurture/go-template/pkg/metrics"
 	"github.com/supernurture/go-template/pkg/redis"
 	"github.com/supernurture/go-template/pkg/tracing"
 )
@@ -28,6 +30,8 @@ type Container struct {
 	Redis      map[string]*goredis.Client
 	// TracerProvider is nil when tracing.enabled is false; the router and clients then add no instrumentation.
 	TracerProvider trace.TracerProvider
+	// Metrics is nil when metrics.enabled is false; nothing is then counted or served.
+	Metrics *prometheus.Registry
 
 	flushTimeout time.Duration // set by SplitShutdown; maxFlushTimeout until then
 	shutdowns    []func() error
@@ -51,6 +55,10 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	// Before anything opens, so the connection notices and GORM's warnings land in the JSON log too.
 	restoreStdLog := log.RedirectStdLog()
 	deps.shutdowns = append(deps.shutdowns, func() error { restoreStdLog(); return nil })
+
+	if cfg.Metrics.Enabled {
+		deps.Metrics = metrics.NewRegistry()
+	}
 
 	// Tracing opens before anything it instruments, so Close flushes spans after those are closed.
 	if err := deps.openTracing(cfg); err != nil {
@@ -120,6 +128,9 @@ func (c *Container) open(cfg *config.Config) error {
 		if err := c.traceGorm(conn, "postgresql"); err != nil {
 			return fmt.Errorf("trace postgres %q: %w", name, err)
 		}
+		if err := c.measureGorm(conn, "postgres/"+name); err != nil {
+			return fmt.Errorf("measure postgres %q: %w", name, err)
+		}
 	}
 
 	for name, db := range cfg.Databases.SQLServer {
@@ -135,6 +146,9 @@ func (c *Container) open(cfg *config.Config) error {
 		c.shutdowns = append(c.shutdowns, closeGorm(conn))
 		if err := c.traceGorm(conn, "microsoft.sql_server"); err != nil {
 			return fmt.Errorf("trace sql server %q: %w", name, err)
+		}
+		if err := c.measureGorm(conn, "sql_server/"+name); err != nil {
+			return fmt.Errorf("measure sql server %q: %w", name, err)
 		}
 	}
 
@@ -153,6 +167,9 @@ func (c *Container) open(cfg *config.Config) error {
 		c.shutdowns = append(c.shutdowns, client.Close)
 		if err := c.traceRedis(client); err != nil {
 			return fmt.Errorf("trace redis %q: %w", name, err)
+		}
+		if err := c.measureRedis(client, "redis/"+name); err != nil {
+			return fmt.Errorf("measure redis %q: %w", name, err)
 		}
 	}
 

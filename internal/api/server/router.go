@@ -32,6 +32,14 @@ func NewRouter(cfg *config.Config, deps *container.Container) (*gin.Engine, erro
 	if deps.TracerProvider != nil {
 		router.Use(serverTracing(cfg.App.Name, deps.TracerProvider))
 	}
+	// After tracing, so a sampled request's latency carries its trace_id; before Default, so it sees Recovery's 500.
+	if deps.Metrics != nil {
+		requestMetrics, err := middleware.Metrics(deps.Metrics)
+		if err != nil {
+			return nil, fmt.Errorf("request metrics: %w", err)
+		}
+		router.Use(requestMetrics)
+	}
 	router.Use(middleware.Default(cfg, deps.Logger)...)
 
 	register(router, deps)

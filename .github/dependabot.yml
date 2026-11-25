@@ -19,6 +19,8 @@ updates:
         patterns: ["go.opentelemetry.io/*"]
       go-redis:
         patterns: ["github.com/redis/go-redis/*"]
+      prometheus:
+        patterns: ["github.com/prometheus/*"]
   - package-ecosystem: github-actions
     directory: /
     target-branch: development
