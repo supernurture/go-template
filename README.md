@@ -11,7 +11,7 @@ docker compose up -d --wait   # PostgreSQL + Redis on the ports config.yaml expe
 make run
 ```
 
-The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs editing to get a running server. To see its traces and logs in Grafana as well, see [Observability](#observability). `--wait` matters on a fresh clone: the app pings every dependency at startup, and Postgres does not accept connections until it has run the schema below.
+The defaults in `config.example.yaml` match `compose.yaml`, so nothing needs editing to get a running server. To ship its traces, logs and metrics to a stack such as Grafana, see [Observability](#observability). `--wait` matters on a fresh clone: the app pings every dependency at startup, and Postgres does not accept connections until it has run the schema below.
 
 ```bash
 curl localhost:8080/health
@@ -126,7 +126,7 @@ That same context carries the request ID. Log with the `*Ctx` methods — `log.I
 
 ## Tracing
 
-Off by default. Set `tracing.enabled: true` and every request becomes a trace, sent over OTLP/HTTP to `tracing.endpoint` — the Alloy agent on the same host, `http://localhost:4318` by default (see [Observability](#observability)):
+Off by default. Set `tracing.enabled: true` and every request becomes a trace, sent over OTLP/HTTP to `tracing.endpoint` — an OTLP collector, usually the agent on the same host, `http://localhost:4318` by default (see [Observability](#observability)):
 
 | Span | From | Carries |
 | --- | --- | --- |
@@ -135,7 +135,7 @@ Off by default. Set `tracing.enabled: true` and every request becomes a trace, s
 | `incr` | `redisotel` on every Redis client | the command name, not its arguments |
 | a client span per call | `otelhttp` on every `services:` client | method and status, and a `traceparent` header so the upstream's spans join the trace |
 
-Every `*Ctx` log line inside a request then carries `trace_id`, `span_id` and `trace_flags` — the names and lowercase-hex encoding the OpenTelemetry spec asks of non-OTLP logs — next to `request_id`, so Grafana can jump from a Loki line to its trace in Tempo. A request that arrives with a `traceparent` continues the caller's trace instead of starting one.
+Every `*Ctx` log line inside a request then carries `trace_id`, `span_id` and `trace_flags` — the names and lowercase-hex encoding the OpenTelemetry spec asks of non-OTLP logs — next to `request_id`, so a log line links to its trace in whatever stack stores both. A request that arrives with a `traceparent` continues the caller's trace instead of starting one.
 
 `tracing.sample_ratio` is the share of new traces kept. Lines of a trace that was not kept still carry its `trace_id`, with `trace_flags` `00`. Keep `1.0` locally; production usually wants `0.1` or less. A caller's decision wins over the ratio, so one trace is never half recorded across services.
 
@@ -151,29 +151,29 @@ Cost, from `BenchmarkTracing` on `/example/visits` with Redis answered in-proces
 
 ## Observability
 
-The Grafana stack — Tempo, Loki, Mimir, Grafana and the dashboards — is not part of this repo: it lives in **observability-stack**, shared by every system. It follows Grafana's agent pattern: one Alloy agent on every host that runs services, collecting next to the app and pushing to the central stack, so the stack never has to reach a service. The service only produces the signals:
+The service produces its signals and stops there: collecting, storing and showing them is a separate stack's job, so the same code works with any OTLP collector, log agent and Prometheus-compatible scraper. The intended shape is an agent on every host that runs services — Grafana Alloy, for one — collecting next to the service and pushing to a central store, so the store never has to reach a service:
 
-| Signal | The service | The host's Alloy agent |
+| Signal | The service | The host's agent |
 | --- | --- | --- |
-| Traces | pushes OTLP/HTTP to `tracing.endpoint` (`localhost:4318`) | forwards them to Tempo |
-| Logs | writes JSON lines: to stderr in a container, to files under `logger.path` on a host | reads them (container output through Docker, or the files), forwards to Loki |
-| Metrics | serves Prometheus `/metrics` on `metrics.port` (9464), apart from the API | scrapes it, forwards to Mimir |
+| Traces | pushes OTLP/HTTP to `tracing.endpoint` (`localhost:4318`) | receives and forwards them |
+| Logs | writes JSON lines: to stderr in a container, to files under `logger.path` on a host | reads them — Docker's container output, or the files — and forwards them |
+| Metrics | serves Prometheus `/metrics` on `metrics.port` (9464), apart from the API | scrapes it |
 
-Logs are collected, not pushed, so a line survives an agent or stack that is down — Docker or the file holds it until it is read — and in a container, output the logger never wrote, such as a crash on stderr, is caught with the rest. What the agent relies on in each line:
+Logs are collected, not pushed, so a line survives an agent or stack that is down — Docker or the file holds it until it is read — and in a container, output the logger never wrote, such as a crash on stderr, is caught with the rest. What an agent can rely on in each line:
 
-| Field | Becomes in Loki |
+| Field | Meaning |
 | --- | --- |
-| `application_name` | the `service_name` label, matching the `service.name` the spans carry, so a trace links to its lines |
-| `level` | the `level` label |
-| `timestamp` | the line's time, not the moment the agent read it. Go layout `2006-01-02T15:04:05.000Z0700`: on a host outside UTC the offset has no colon (`+0700`), so it is not RFC 3339 |
-| `trace_id`, `span_id`, `request_id` | structured metadata, not labels: unique per request, each would start a stream of its own |
-| `method`, `path`, `status` (access log) | parsed at query time, for the dashboards' per-route panels |
+| `application_name` | the service, equal to the `service.name` the spans carry, so a trace and its lines share a name; the label to stream by |
+| `level` | `DEBUG`, `INFO`, `WARN` or `ERROR`; safe as a label |
+| `timestamp` | the line's own time, to use instead of the moment it was read. Go layout `2006-01-02T15:04:05.000Z0700`: on a host outside UTC the offset has no colon (`+0700`), so it is not RFC 3339 |
+| `trace_id`, `span_id`, `request_id` | unique per request: keep them searchable, never as labels, or each would start a stream of its own |
+| `method`, `path`, `status` | on access-log lines, for per-route panels |
 
-Keep those names when changing the logger; observability-stack's agent config is written against them.
+Keep those names when changing the logger: whatever collects the logs is configured against them.
 
-Every line the app logs is JSON, including what `pkg/database`, `pkg/redis` and GORM report through the standard library's `log`: `container.NewContainer` redirects it into the logger (`logger.RedirectStdLog`) before anything opens, and `Close` puts it back. A message starting `warning: ` — the cleartext-connection notices, GORM's slow queries and errors — becomes a WARN, the rest INFO. Without it those lines would reach Loki without a `service_name`, and on a host, where the agent reads only the files, not at all. The one plain-text line is `main`'s on stderr when the start fails: before the logger exists — an unreadable config — it is the only record; after, the same failure is also in the JSON log as `start failed`.
+Every line the app logs is JSON, including what `pkg/database`, `pkg/redis` and GORM report through the standard library's `log`: `container.NewContainer` redirects it into the logger (`logger.RedirectStdLog`) before anything opens, and `Close` puts it back. A message starting `warning: ` — the cleartext-connection notices, GORM's slow queries and errors — becomes a WARN, the rest INFO. Without it those lines would reach the agent as plain text it cannot attribute to the service, and on a host, where it reads only the files, not at all. The one plain-text line is `main`'s on stderr when the start fails: before the logger exists — an unreadable config — it is the only record; after, the same failure is also in the JSON log as `start failed`.
 
-Locally, run observability-stack's stack and agent on your machine: the agent listens on `localhost:4318`, which `tracing.endpoint` already points at, scrapes `localhost:9464/metrics`, and tails the files under `./logs`, so `logger.disable_file` must stay `false` while the app runs through `make run`. Then set `tracing.enabled: true`.
+Locally, any stack with an agent on your machine works: it listens on `localhost:4318`, which `tracing.endpoint` already points at, scrapes `localhost:9464/metrics`, and tails the files under `./logs`, so `logger.disable_file` must stay `false` while the app runs through `make run`. Then set `tracing.enabled: true`. Without one, leave tracing off: the JSON lines on stderr and under `./logs`, and `/metrics`, can be read directly.
 
 Where a dashboard takes its error ratio from spans rather than `http_server_request_duration_seconds`, it counts server spans in status ERROR: a 5xx, or a request whose handler called `c.Error`. A 4xx leaves the span unset, as the HTTP conventions ask, so record why a request was refused with `middleware.Reject` rather than `c.Error`; `invalidParam`, `badRequest` and the example handlers do.
 
@@ -191,7 +191,7 @@ With `metrics.enabled` (on in `config.example.yaml`: a scrape needs nothing runn
 
 The names, labels and buckets are the OpenTelemetry HTTP conventions', so a service in another language lines up on the same dashboard; `db_name` is the key `/ready` reports a check by. Every label is bounded — an unknown method is `_OTHER`, a path never becomes a label — so a scanner cannot multiply the series.
 
-Unlike the rates Tempo derives from spans, these count every request whatever `tracing.sample_ratio` keeps, so use them for request rate, errors and latency. A sampled request's bucket carries its `trace_id` as an exemplar, served when the scraper asks for OpenMetrics, so a point on a latency panel opens its trace. The series carry no service name: the agent adds it as a target label when it scrapes, as it does `service_name` for logs.
+Unlike rates derived from spans (Tempo's metrics generator, for one), these count every request whatever `tracing.sample_ratio` keeps, so use them for request rate, errors and latency. A sampled request's bucket carries its `trace_id` as an exemplar, served when the scraper asks for OpenMetrics, so a point on a latency panel opens its trace. The series carry no service name: the agent adds one as a target label when it scrapes, matching the logs' `application_name`.
 
 The port is for the agent only. It describes the service's insides, so never publish it: `make docker-run` maps only the API's port, and in compose leave it off `ports:` and let the agent reach it on the shared network. Cost, from `BenchmarkMetrics`: about 0.4µs and 5 allocations a request.
 
@@ -214,7 +214,7 @@ The port is for the agent only. It describes the service's insides, so never pub
 
 `docker-run` starts a container, so `localhost` in `config.yaml` points at that container, not your machine. Compose publishes Postgres and Redis on `127.0.0.1` only, so join the compose network and point the hosts at the service names (`docker run --network go-template_default …`, compose naming it after the folder; hosts `postgres` and `redis`); `host.docker.internal` reaches them on Docker Desktop but not on Linux.
 
-In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the host's Alloy agent to collect, and nothing is written inside the image. Point `tracing.endpoint` at the agent too: `localhost` is the container itself, so use the agent's name on a Docker network they share (`TRACING_ENDPOINT=http://alloy:4318`). It is also faster under load: the log file takes a lock and a write per line, which caps one instance at around 130k requests a second however many cores it has (`BenchmarkLogFile`).
+In a container, set `logger.console: true` and `logger.disable_file: true`: logs go to stderr for the host's agent to collect, and nothing is written inside the image. Point `tracing.endpoint` at the agent too: `localhost` is the container itself, so use the agent's name on a Docker network they share (`TRACING_ENDPOINT=http://<agent>:4318`). It is also faster under load: the log file takes a lock and a write per line, which caps one instance at around 130k requests a second however many cores it has (`BenchmarkLogFile`).
 
 ## Requirements
 
